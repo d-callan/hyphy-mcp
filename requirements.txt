@@ -1,0 +1,3 @@
+mcp[cli]>=1.9.4
+biopython>=1.83
+fastmcp>=0.1.0
