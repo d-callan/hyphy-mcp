@@ -33,6 +33,18 @@ Each component has its own README with specific setup instructions:
 
 ### Quick Start
 
+#### Using the Makefile
+
+```bash
+# Install all components
+make install
+
+# Start the full stack
+make start
+```
+
+#### Manual Setup
+
 1. **Set up the Python MCP Server**:
    ```bash
    cd python-mcp-server
@@ -55,12 +67,6 @@ Each component has its own README with specific setup instructions:
    npm install
    ```
 
-4. **Run the full stack**:
-   ```bash
-   # In the genkit-client directory
-   npm run dev
-   ```
-
 This will start both the Express API server and the Svelte UI development server.
 
 ## Features
@@ -73,13 +79,55 @@ This will start both the Express API server and the Svelte UI development server
 
 ## Development Workflow
 
-For development, you can run each component separately:
+### Using the Makefile
+
+For development, you can run components separately or together:
+
+```bash
+# Start all components
+make start
+
+# Start only the Python MCP server
+make start-mcp
+
+# Start only the Genkit API server
+make start-api
+
+# Start only the Svelte UI
+make start-ui
+
+# Start the development environment (API and UI)
+make dev
+```
+
+### Using the Startup Script
+
+```bash
+# Start all components
+./start.sh --mode all
+
+# Start only the Python MCP server
+./start.sh --mode mcp
+
+# Start only the Genkit API server
+./start.sh --mode api
+
+# Start only the Svelte UI
+./start.sh --mode ui
+
+# Start the development environment
+./start.sh --mode dev
+```
+
+### Manual Commands
+
+You can also run each component separately using direct commands:
 
 - **Python MCP Server**: `cd python-mcp-server && python -m hyphy_mcp`
 - **Genkit Client API**: `cd genkit-client && npm run dev:server`
 - **Svelte UI**: `cd genkit-client-ui && npm run dev`
 
-Or run the full stack with a single command:
+Or run the API and UI together with a single command:
 ```bash
 cd genkit-client && npm run dev
 ```

@@ -11,6 +11,10 @@ GENKIT_UI_DIR = genkit-client-ui
 # Default port for the API server
 SERVER_PORT ?= 3000
 
+# Default Datamonkey API settings
+DATAMONKEY_API_URL ?= http://localhost
+DATAMONKEY_API_PORT ?= 9300
+
 .PHONY: help install install-python install-node install-ui setup-env \
         start start-mcp start-api start-ui dev clean
 
@@ -90,7 +94,15 @@ start-ui:
 # Development target (API + UI)
 dev:
 	@echo "Starting development environment..."
-	cd $(GENKIT_CLIENT_DIR) && npm run dev
+	@echo "Setting up environment variables for Datamonkey API..."
+	@echo "DATAMONKEY_API_URL=$(DATAMONKEY_API_URL)"
+	@echo "DATAMONKEY_API_PORT=$(DATAMONKEY_API_PORT)"
+	@echo "Open your browser to http://localhost:$(SERVER_PORT) to access the chat interface."
+	cd $(GENKIT_CLIENT_DIR) && \
+	DATAMONKEY_API_URL=$(DATAMONKEY_API_URL) \
+	DATAMONKEY_API_PORT=$(DATAMONKEY_API_PORT) \
+	SERVER_PORT=$(SERVER_PORT) \
+	npm run dev
 
 # Clean target
 clean:
