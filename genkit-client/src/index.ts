@@ -15,7 +15,7 @@ import { deepSeek } from '@genkit-ai/compat-oai/deepseek';
 
 
 // Helper function to configure the model based on environment variables
-function configureModel() {
+export function configureModel() {
   const provider = process.env.MODEL_PROVIDER || 'google';
   const modelName = process.env.MODEL_NAME || 'gemini-2.5-flash';
   const temperature = parseFloat(process.env.MODEL_TEMPERATURE || '0.7');

@@ -1,182 +1,89 @@
-# HyPhy MCP Server
+# HyPhy MCP Full-Stack Application
 
-A Model Context Protocol (MCP) server that provides access to HyPhy's evolutionary analysis methods through the Datamonkey API. This server allows AI assistants and other MCP clients to run HyPhy analyses on FASTA sequence alignments without requiring a local HyPhy installation.
+A full-stack application for phylogenetic analysis using HyPhy methods through a natural language interface. This project combines a Python MCP server, a Node.js Genkit client, and a Svelte chat UI to enable AI-powered analysis of FASTA sequence alignments.
 
-## Features
+## Project Architecture
 
-- Run HyPhy methods through a simple MCP interface via the Datamonkey API
-- Currently supports three key methods:
-  - **BUSTED**: Branch-Site Unrestricted Statistical Test for Episodic Diversification
-  - **FEL**: Fixed Effects Likelihood for site-specific selection analysis
-  - **MEME**: Mixed Effects Model of Evolution for detecting episodic selection
-- Process cleaned FASTA files with optional tree files
-- Get summarized results for easy interpretation
-- No local HyPhy installation required - all analyses run on the Datamonkey API server
+This repository contains three main components that work together:
 
-## Prerequisites
+1. **Python MCP Server** (`/python-mcp-server`): 
+   - A Model Context Protocol server that exposes HyPhy's evolutionary analysis methods
+   - Communicates with the Datamonkey API to run analyses without requiring a local HyPhy installation
+   - Provides tools for processing FASTA files and interpreting results
 
-- Python 3.12+
-- Requests library
-- MCP server library
-- Access to a running Datamonkey API server (defaults to localhost:9300)
+2. **Genkit Client** (`/genkit-client`):
+   - A Node.js backend that connects to the HyPhy MCP server
+   - Configures and initializes a Genkit instance with the selected AI model
+   - Exposes a REST API for the frontend chat UI
+   - Processes natural language requests using the configured AI model
 
-## Installation
+3. **Svelte Chat UI** (`/genkit-client-ui`):
+   - A modern, responsive chat interface built with Svelte
+   - Communicates with the Genkit client's REST API
+   - Allows users to send natural language requests for HyPhy analyses
+   - Displays responses and analysis results in a conversational format
 
-1. Clone the repository:
+## Getting Started
+
+Each component has its own README with specific setup instructions:
+
+- [Python MCP Server README](/python-mcp-server/README.md)
+- [Genkit Client README](/genkit-client/README.md)
+- [Svelte Chat UI README](/genkit-client-ui/README.md)
+
+### Quick Start
+
+1. **Set up the Python MCP Server**:
    ```bash
-   git clone https://github.com/d-callan/hyphy-mcp.git
-   cd hyphy-mcp
-   ```
-
-2. Choose an installation method based on your needs:
-
-   ### Development Installation (Editable Mode)
-   Use this method if you're developing or modifying the code:
-   ```bash
-   # Create a virtual environment with Python 3.10+
+   cd python-mcp-server
    uv venv -p 3.10
-   
-   # Activate the virtual environment
    source .venv/bin/activate
-   
-   # Install hyphy-mcp in development mode with dependencies
    uv pip install -e .
    ```
 
-   ### Production Installation (For uvx support)
-   Use this method if you want to use uvx to start the server:
+2. **Set up the Genkit Client**:
    ```bash
-   # Create a virtual environment with Python 3.10+
-   uv venv -p 3.10
-   
-   # Activate the virtual environment
-   source .venv/bin/activate
-   
-   # Install hyphy-mcp normally (not in editable mode)
-   uv pip install .
+   cd genkit-client
+   npm install
+   cp .env.example .env
+   # Edit .env with your API keys and configuration
    ```
 
-3. Alternative: Install using pip:
+3. **Set up the Svelte Chat UI**:
    ```bash
-   pip install -e .  # For development
-   # OR
-   pip install .     # For production/uvx support
+   cd genkit-client-ui
+   npm install
    ```
 
-4. Configure the Datamonkey API connection (optional - defaults to localhost:9300):
+4. **Run the full stack**:
    ```bash
-   export DATAMONKEY_API_URL=http://localhost
-   export DATAMONKEY_API_PORT=9300
+   # In the genkit-client directory
+   npm run dev
    ```
 
-## Usage
+This will start both the Express API server and the Svelte UI development server.
 
-### Starting the Server
+## Features
 
-#### Option 1: Direct Python Execution (Recommended)
+- **Natural Language Interface**: Ask questions and request analyses in plain English
+- **Multiple HyPhy Methods**: Support for BUSTED, FEL, MEME, aBSREL, and more
+- **API-Based Processing**: No local HyPhy installation required
+- **Configurable AI Models**: Support for Google AI, OpenAI, Anthropic, Ollama, and more
+- **Modern UI**: Clean, responsive chat interface for easy interaction
 
-After installing with either method, make sure your virtual environment is activated:
+## Development Workflow
 
+For development, you can run each component separately:
+
+- **Python MCP Server**: `cd python-mcp-server && python -m hyphy_mcp`
+- **Genkit Client API**: `cd genkit-client && npm run dev:server`
+- **Svelte UI**: `cd genkit-client-ui && npm run dev`
+
+Or run the full stack with a single command:
 ```bash
-# Activate the uv environment
-source .venv/bin/activate
-
-# Start the server with Python
-python -m hyphy_mcp
+cd genkit-client && npm run dev
 ```
-
-This method works with both editable and non-editable installations and is the most reliable way to start the server.
-
-#### Option 2: Using the Entry Point Script (Production)
-
-After installing with the **Production Installation** method (non-editable mode), you can use the entry point script directly:
-
-```bash
-# Activate the uv environment
-source .venv/bin/activate
-
-# Install in non-editable mode if you haven't already
-uv pip install .
-
-# Start the server using the entry point script
-hyphy-mcp
-```
-
-This method uses the entry point defined in pyproject.toml and is ideal for production use.
-
-#### Option 3: Using MCP CLI Tools (For development)
-
-```bash
-# If you prefer conda instead of uv
-conda create -n hyphy-mcp python=3.10
-conda activate hyphy-mcp
-pip install -e .
-
-# Start the server using MCP dev tools
-mcp dev hyphy-mcp/server.py
-
-# When prompted with "Command:", type "hyphy-mcp" and press Enter/ click 'Connect'
-```
-
-### Available Tools
-
-The server provides the following tools:
-
-1. **get_available_methods**: List all available HyPhy analysis methods supported by the Datamonkey API
-2. **upload_file_to_datamonkey**: Upload a file to the Datamonkey API server
-3. **start_busted_job**: Start a BUSTED analysis job on the Datamonkey API
-4. **start_fel_job**: Start a FEL analysis job on the Datamonkey API
-5. **start_meme_job**: Start a MEME analysis job on the Datamonkey API
-6. **check_datamonkey_job_status**: Check the status of a job on the Datamonkey API
-7. **fetch_datamonkey_job_results**: Fetch the results of a completed job from the Datamonkey API
-
-### Example Workflow
-
-1. Connect to the server from an MCP client
-2. Ensure the Datamonkey API is reachable using `get_available_methods`
-3. Upload a FASTA alignment file using `upload_file_to_datamonkey`
-4. Start an analysis job with the alignment file handle:
-   - Use `start_busted_job`, `start_fel_job`, or `start_meme_job` depending on the analysis needed
-   - These methods return a job ID from the Datamonkey API
-5. Periodically check the job status using `check_datamonkey_job_status` with the job ID
-6. Once the job is complete, fetch the results using `fetch_datamonkey_job_results` with the job ID
-7. Interpret the results or save them to a file for further analysis
-
-## Development
-
-### Adding New Methods
-
-To add support for additional HyPhy methods available in the Datamonkey API:
-
-1. Check the Datamonkey API specification for the new method's endpoint and request format
-2. Create a new tool function with the `@mcp.tool()` decorator that follows the pattern of existing methods
-3. Add the method to the list returned by `get_available_methods`
-
-### Testing
-
-To test the integration with the Datamonkey API:
-
-1. Ensure you have a running instance of the Datamonkey API service:
-   ```bash
-   # Clone and start the service-datamonkey repository
-   git clone https://github.com/veg/service-datamonkey.git
-   cd service-datamonkey
-   make start
-   ```
-
-2. Set the environment variables to point to your local Datamonkey API:
-   ```bash
-   export DATAMONKEY_API_URL=http://localhost
-   export DATAMONKEY_API_PORT=9300
-   ```
-
-3. Start the hyphy-mcp server and test the tools with sample alignment files
 
 ## License
 
 MIT
-
-## Acknowledgements
-
-- [HyPhy](https://github.com/veg/hyphy) - Hypothesis testing using Phylogenies
-- [Model Context Protocol](https://modelcontextprotocol.io/) - Protocol for AI tool integration

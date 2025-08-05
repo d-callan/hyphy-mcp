@@ -7,7 +7,10 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts",
+    "dev:backend": "ts-node src/index.ts",
+    "dev:server": "ts-node src/server.ts",
+    "dev:ui": "cd ../genkit-client-ui && npm run dev",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:ui\"",
     "lint": "tsc --noEmit",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -29,9 +32,20 @@
     "genkitx-ollama": "^1.15.5"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
     "@types/dotenv": "^6.1.1",
     "@types/node": "^20.11.0",
+    "concurrently": "^9.2.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "html-webpack-plugin": "^5.6.3",
+    "svelte": "^5.37.3",
+    "svelte-loader": "^3.2.4",
+    "svelte-preprocess": "^6.0.3",
     "ts-node": "^10.9.2",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "webpack": "^5.101.0",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.2"
   }
 }
