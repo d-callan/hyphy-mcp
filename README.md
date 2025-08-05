@@ -45,7 +45,7 @@ A Model Context Protocol (MCP) server that provides access to HyPhy's evolutiona
 
 #### Option 1: Using uvx (Preferred Method)
 
-First, make sure hyphy-mcp is installed in your active Python environment (preferably a conda environment with Python 3.10+):
+First, make sure hyphy-mcp is installed in your active Python environment:
 
 ```bash
 # Install hyphy-mcp in development mode
