@@ -2,6 +2,10 @@ import { genkit, z } from 'genkit';
 import { googleAI } from '@genkit-ai/googleai';
 import { mcpClient } from 'genkitx-mcp';
 import { logger } from '@genkit-ai/core/logging';
+import dotenv from 'dotenv';
+
+// Load environment variables from .env file
+dotenv.config();
 
 
 // Configure Genkit and plugins centrally
@@ -20,9 +24,12 @@ const ai = genkit({
       },
     }),
   ],
-  model: googleAI.model('gemini-2.5-flash', {
-    temperature: 0.7,
-  }),
+  model: googleAI.model(
+    process.env.MODEL_NAME || 'gemini-2.5-flash', 
+    {
+      temperature: parseFloat(process.env.MODEL_TEMPERATURE || '0.7'),
+    }
+  ),
   // You can register your flows here, but importing them and ensuring they
   // are defined is often enough, especially for simpler setups.
   // resources: {
@@ -78,7 +85,7 @@ export const chatFlow = ai.defineFlow(
     // It's important that 'myLocalMcpServer' and 'gemini-2.0-flash' are configured
     // in the main genkit({...}) call in index.ts for these to be available.
     const llmResponse = await ai.generate({
-      prompt: `User says: "${input.message}". Based on this, consider if you need to use any available tools from 'myLocalMcpServer' to generate a response. Respond in a helpful and informative manner.`,
+      prompt: `User says: "${input.message}". Based on this, consider if you need to use any available tools from 'datamonkey' to generate a response. Respond in a helpful and informative manner.`,
       // You can specify which tools are available for the LLM to suggest using
       tools: datamonkeyTools
     });
