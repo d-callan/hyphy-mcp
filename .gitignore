@@ -192,3 +192,22 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+yarn-debug.log
+.npm
+
+# TypeScript
+dist/
+*.tsbuildinfo
+
+# Genkit
+.genkit/
+
+# Monorepo specific
+python-mcp-server/.venv/
+genkit-client/node_modules/
+genkit-client/dist/

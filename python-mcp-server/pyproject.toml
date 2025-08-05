@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "hyphy-mcp"
 dynamic = ["version"]
 description = "Model Context Protocol server for HyPhy evolutionary analysis"
-readme = "README.md"
+readme = "../README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
@@ -15,6 +15,7 @@ authors = [
 dependencies = [
     "biopython>=1.83",
     "mcp[cli]>=1.9.4",
+    "requests>=2.32.0",
 ]
 
 [project.urls]
@@ -22,10 +23,11 @@ Homepage = "https://github.com/d-callan/hyphy-mcp"
 Issues = "https://github.com/d-callan/hyphy-mcp/issues"
 
 [project.scripts]
-hyphy-mcp = "hyphy_mcp.__main__:run"
+hyphy-mcp = "src.__main__:run"
 
 [tool.setuptools]
-package-dir = {"hyphy_mcp" = "hyphy-mcp"}
+package-dir = {"hyphy_mcp" = "src"}
+packages = ["hyphy_mcp"]
 
 [tool.setuptools.dynamic]
-version = {attr = "hyphy_mcp.version.__version__"}
+version = {attr = "src.version.__version__"}

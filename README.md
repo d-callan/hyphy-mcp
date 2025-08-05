@@ -22,18 +22,48 @@ A Model Context Protocol (MCP) server that provides access to HyPhy's evolutiona
 
 ## Installation
 
-1. Clone this repository:
+1. Clone the repository:
    ```bash
-   git clone https://github.com/veg/hyphy-mcp.git
+   git clone https://github.com/d-callan/hyphy-mcp.git
    cd hyphy-mcp
    ```
 
-2. Install dependencies:
+2. Choose an installation method based on your needs:
+
+   ### Development Installation (Editable Mode)
+   Use this method if you're developing or modifying the code:
    ```bash
-   pip install -r requirements.txt
+   # Create a virtual environment with Python 3.10+
+   uv venv -p 3.10
+   
+   # Activate the virtual environment
+   source .venv/bin/activate
+   
+   # Install hyphy-mcp in development mode with dependencies
+   uv pip install -e .
    ```
 
-3. Configure the Datamonkey API connection (optional - defaults to localhost:9300):
+   ### Production Installation (For uvx support)
+   Use this method if you want to use uvx to start the server:
+   ```bash
+   # Create a virtual environment with Python 3.10+
+   uv venv -p 3.10
+   
+   # Activate the virtual environment
+   source .venv/bin/activate
+   
+   # Install hyphy-mcp normally (not in editable mode)
+   uv pip install .
+   ```
+
+3. Alternative: Install using pip:
+   ```bash
+   pip install -e .  # For development
+   # OR
+   pip install .     # For production/uvx support
+   ```
+
+4. Configure the Datamonkey API connection (optional - defaults to localhost:9300):
    ```bash
    export DATAMONKEY_API_URL=http://localhost
    export DATAMONKEY_API_PORT=9300
@@ -43,39 +73,44 @@ A Model Context Protocol (MCP) server that provides access to HyPhy's evolutiona
 
 ### Starting the Server
 
-#### Option 1: Using uvx (Preferred Method)
+#### Option 1: Direct Python Execution (Recommended)
 
-First, make sure hyphy-mcp is installed in your active Python environment:
-
-```bash
-# Install hyphy-mcp in development mode
-cd /path/to/hyphy-mcp
-pip install -e .
-```
-
-Then start the server with uvx:
+After installing with either method, make sure your virtual environment is activated:
 
 ```bash
-uvx start hyphy-mcp
+# Activate the uv environment
+source .venv/bin/activate
+
+# Start the server with Python
+python -m hyphy_mcp
 ```
 
-This is the preferred method for starting the server.
+This method works with both editable and non-editable installations and is the most reliable way to start the server.
 
-#### Option 2: Direct Python Execution
+#### Option 2: Using the Entry Point Script (Production)
+
+After installing with the **Production Installation** method (non-editable mode), you can use the entry point script directly:
 
 ```bash
-python3 -m hyphy_mcp
+# Activate the uv environment
+source .venv/bin/activate
+
+# Install in non-editable mode if you haven't already
+uv pip install .
+
+# Start the server using the entry point script
+hyphy-mcp
 ```
 
-This will start the MCP server which can then be connected to compatible MCP clients like Claude Desktop.
+This method uses the entry point defined in pyproject.toml and is ideal for production use.
 
 #### Option 3: Using MCP CLI Tools (For development)
 
 ```bash
-# Install dependencies in a conda environment with Python 3.12
-conda create -n py312 python=3.12
-conda activate py312
-pip install -r requirements.txt
+# If you prefer conda instead of uv
+conda create -n hyphy-mcp python=3.10
+conda activate hyphy-mcp
+pip install -e .
 
 # Start the server using MCP dev tools
 mcp dev hyphy-mcp/server.py

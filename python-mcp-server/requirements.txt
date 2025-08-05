@@ -1,0 +1,3 @@
+biopython>=1.83
+mcp[cli]>=1.9.4
+requests>=2.32.0

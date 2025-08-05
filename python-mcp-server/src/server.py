@@ -14,8 +14,8 @@ from mcp.server.fastmcp import FastMCP
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create an MCP server with extended timeout (20 minutes)
-mcp = FastMCP("HyPhy", dependencies=["biopython", "requests"], timeout=1200)
+# Create an MCP server
+mcp = FastMCP("HyPhy", dependencies=["biopython", "requests"])
 
 # Datamonkey API state
 datamonkey_state: Dict[str, Any] = {
