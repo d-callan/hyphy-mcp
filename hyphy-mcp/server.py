@@ -2,7 +2,7 @@
 import json
 import logging
 import os
-import subprocess
+import requests
 import tempfile
 import threading
 import time
@@ -16,28 +16,95 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Create an MCP server with extended timeout (20 minutes)
-mcp = FastMCP("HyPhy", dependencies=["biopython"], timeout=1200)
+mcp = FastMCP("HyPhy", dependencies=["biopython", "requests"], timeout=1200)
 
-# HyPhy state
-hyphy_state: Dict[str, Any] = {
-    "hyphy_path": os.environ.get("HYPHY_PATH", "/usr/local/bin/hyphy"),
+# Datamonkey API state
+datamonkey_state: Dict[str, Any] = {
+    "api_url": os.environ.get("DATAMONKEY_API_URL", "http://localhost"),
+    "api_port": int(os.environ.get("DATAMONKEY_API_PORT", "9300")),
     "temp_dir": None,
     "last_results": {},
     "jobs": {},  # Store background jobs
 }
 
+# Get the full API URL including port
+def get_api_url() -> str:
+    """Get the full Datamonkey API URL including port"""
+    return f"{datamonkey_state['api_url']}:{datamonkey_state['api_port']}/api/v1"
 
-def ensure_hyphy_installed():
-    """Helper function to ensure HyPhy is installed and accessible"""
-    if not os.path.isfile(hyphy_state["hyphy_path"]):
-        raise ValueError(
-            f"HyPhy not found at {hyphy_state['hyphy_path']}. "
-            f"Please install HyPhy or set the HYPHY_PATH environment variable."
+
+def ensure_datamonkey_api_connection():
+    """Helper function to ensure Datamonkey API is accessible"""
+    try:
+        response = requests.get(f"{get_api_url()}/health")
+        response.raise_for_status()
+        return True
+    except requests.RequestException as e:
+        raise ConnectionError(
+            f"Could not connect to Datamonkey API at {get_api_url()}. "
+            f"Error: {str(e)}. "
+            f"Please ensure the API is running and the URL/port are correct."
         )
 
 
+@mcp.tool()
+def upload_file_to_datamonkey(file_path: str) -> Dict[str, Any]:
+    """Upload a file to the Datamonkey API and return the file handle
+    
+    Args:
+        file_path: Path to the file to upload
+        
+    Returns:
+        Dictionary containing the file handle and status information
+    """
+    try:
+        ensure_datamonkey_api_connection()
+        
+        if not os.path.exists(file_path):
+            return {
+                "status": "error",
+                "error": f"File not found: {file_path}"
+            }
+        
+        # Read the file content
+        with open(file_path, "rb") as f:
+            file_content = f.read()
+        
+        # Upload the file to the Datamonkey API
+        logger.info(f"Uploading file {file_path} to Datamonkey API")
+        response = requests.post(
+            f"{get_api_url()}/datasets",
+            files={"file": (os.path.basename(file_path), file_content)}
+        )
+        response.raise_for_status()
+        
+        # Extract the file handle from the response
+        response_data = response.json()
+        if "id" not in response_data:
+            return {
+                "status": "error",
+                "error": f"Invalid response from Datamonkey API: {response_data}"
+            }
+        
+        file_handle = response_data["id"]
+        logger.info(f"File uploaded successfully, handle: {file_handle}")
+        
+        return {
+            "status": "success",
+            "file_handle": file_handle,
+            "file_name": os.path.basename(file_path),
+            "file_size": os.path.getsize(file_path)
+        }
+    except Exception as e:
+        logger.error(f"Error uploading file to Datamonkey API: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
 def run_hyphy_method_sync(method: str, alignment_file: str, tree_file: Optional[str] = None, **kwargs) -> Dict[str, Any]:
-    """Run a HyPhy analysis method synchronously
+    """Run a HyPhy analysis method synchronously via the Datamonkey API
     
     Args:
         method: HyPhy method to run (BUSTED, FEL, MEME, etc.)
@@ -48,77 +115,98 @@ def run_hyphy_method_sync(method: str, alignment_file: str, tree_file: Optional[
     Returns:
         Dictionary containing analysis results and metadata
     """
-    ensure_hyphy_installed()
+    ensure_datamonkey_api_connection()
     
-    # Create a temporary directory for output files if not already created
-    if hyphy_state["temp_dir"] is None:
-        hyphy_state["temp_dir"] = tempfile.mkdtemp(prefix="hyphy_mcp_")
+    # Upload the alignment and tree files to get their handles
+    alignment_handle = upload_file_to_datamonkey(alignment_file)
+    tree_handle = upload_file_to_datamonkey(tree_file) if tree_file else None
     
-    # Create a unique output JSON file for this analysis
-    output_file = os.path.join(hyphy_state["temp_dir"], f"{method}_{os.path.basename(alignment_file)}.json")
+    # Prepare the request payload based on the method
+    payload = {
+        "alignment": alignment_handle,
+    }
     
-    # Build the HyPhy command based on the method
-    cmd = [hyphy_state["hyphy_path"]]
+    if tree_handle:
+        payload["tree"] = tree_handle
     
+    # Add method-specific parameters
     if method == "BUSTED":
-        cmd.extend(["busted", 
-                   "--alignment", alignment_file,
-                   "--tree", tree_file or "",
-                   "--output", output_file])
-        # Add optional parameters
         if kwargs.get("branches"):
-            cmd.extend(["--branches", kwargs["branches"]])
+            payload["branches"] = kwargs["branches"]
     
-    elif method == "FEL":
-        cmd.extend(["fel", 
-                   "--alignment", alignment_file,
-                   "--tree", tree_file or "",
-                   "--output", output_file])
-        # Add optional parameters
+    elif method in ["FEL", "MEME"]:
         if kwargs.get("pvalue"):
-            cmd.extend(["--pvalue", str(kwargs["pvalue"])])
+            payload["pvalue"] = kwargs["pvalue"]
     
-    elif method == "MEME":
-        cmd.extend(["meme", 
-                   "--alignment", alignment_file,
-                   "--tree", tree_file or "",
-                   "--output", output_file])
-        # Add optional parameters
-        if kwargs.get("pvalue"):
-            cmd.extend(["--pvalue", str(kwargs["pvalue"])])
-    
-    else:
-        raise ValueError(f"Unsupported HyPhy method: {method}")
-    
-    # Run the HyPhy command
-    logger.info(f"Running HyPhy command: {' '.join(cmd)}")
-    process = subprocess.run(cmd, capture_output=True, text=True)
-    
-    if process.returncode != 0:
-        logger.error(f"HyPhy error: {process.stderr}")
-        raise RuntimeError(f"HyPhy {method} analysis failed: {process.stderr}")
-    
-    # Read the results from the output file
+    # Start the job
+    logger.info(f"Starting {method} job with Datamonkey API")
     try:
-        with open(output_file, 'r') as f:
-            results = json.load(f)
-            
-        # Store the results for later reference
-        hyphy_state["last_results"][method] = results
+        response = requests.post(
+            f"{get_api_url()}/methods/{method.lower()}-start", 
+            json=payload
+        )
+        response.raise_for_status()
+        job_data = response.json()
         
-        return {
-            "status": "success",
-            "method": method,
-            "results": results,
-            "output_file": output_file
-        }
+        if 'job_id' not in job_data:
+            raise ValueError(f"Invalid response from Datamonkey API: {job_data}")
+            
+        job_id = job_data['job_id']
+        
+        # Poll for job completion
+        max_attempts = 60  # Maximum number of polling attempts
+        poll_interval = 10  # Seconds between polling attempts
+        
+        for attempt in range(max_attempts):
+            logger.info(f"Polling job status (attempt {attempt+1}/{max_attempts})")
+            
+            # Check job status
+            status_response = requests.get(
+                f"{get_api_url()}/methods/{method.lower()}-result",
+                params={"job_id": job_id}
+            )
+            status_response.raise_for_status()
+            status_data = status_response.json()
+            
+            if status_data.get('status') == 'completed':
+                # Job completed successfully
+                logger.info(f"{method} job completed successfully")
+                
+                # Store the results for later reference
+                datamonkey_state["last_results"][method] = status_data
+                
+                # Save results to a file for compatibility with existing code
+                output_file = os.path.join(datamonkey_state["temp_dir"], f"{method}_{job_id}.json")
+                with open(output_file, 'w') as f:
+                    json.dump(status_data, f)
+                
+                return {
+                    "status": "success",
+                    "method": method,
+                    "results": status_data,
+                    "output_file": output_file,
+                    "job_id": job_id
+                }
+            
+            elif status_data.get('status') == 'error':
+                # Job failed
+                error_message = status_data.get('error_message', 'Unknown error')
+                logger.error(f"{method} job failed: {error_message}")
+                raise RuntimeError(f"Datamonkey {method} analysis failed: {error_message}")
+            
+            # Job still running, wait and try again
+            time.sleep(poll_interval)
+        
+        # If we get here, the job timed out
+        raise TimeoutError(f"Datamonkey {method} analysis timed out after {max_attempts * poll_interval} seconds")
+        
     except Exception as e:
-        logger.error(f"Error parsing HyPhy results: {e}")
-        raise RuntimeError(f"Failed to parse HyPhy {method} results: {str(e)}")
+        logger.error(f"Error running {method} job with Datamonkey API: {e}")
+        raise RuntimeError(f"Failed to run {method} job with Datamonkey API: {str(e)}")
 
 
 def run_hyphy_method_async(method: str, alignment_file: str, tree_file: Optional[str] = None, **kwargs) -> Dict[str, Any]:
-    """Run a HyPhy analysis method asynchronously
+    """Run a HyPhy analysis method asynchronously via the Datamonkey API
     
     Args:
         method: HyPhy method to run (BUSTED, FEL, MEME, etc.)
@@ -129,120 +217,103 @@ def run_hyphy_method_async(method: str, alignment_file: str, tree_file: Optional
     Returns:
         Dictionary containing job ID and status information
     """
-    ensure_hyphy_installed()
+    ensure_datamonkey_api_connection()
     
     # Create a temporary directory for output files if not already created
-    if hyphy_state["temp_dir"] is None:
-        hyphy_state["temp_dir"] = tempfile.mkdtemp(prefix="hyphy_mcp_")
+    if datamonkey_state["temp_dir"] is None:
+        datamonkey_state["temp_dir"] = tempfile.mkdtemp(prefix="datamonkey_mcp_")
     
-    # Create a unique output JSON file for this analysis
-    output_file = os.path.join(hyphy_state["temp_dir"], f"{method}_{os.path.basename(alignment_file)}.json")
+    # Generate a unique internal job ID to track this request
+    internal_job_id = str(uuid.uuid4())
     
-    # Build the HyPhy command based on the method
-    cmd = [hyphy_state["hyphy_path"]]
-    
-    if method == "BUSTED":
-        cmd.extend(["busted", 
-                   "--alignment", alignment_file,
-                   "--tree", tree_file or "",
-                   "--output", output_file])
-        # Add optional parameters
-        if kwargs.get("branches"):
-            cmd.extend(["--branches", kwargs["branches"]])
-    
-    elif method == "FEL":
-        cmd.extend(["fel", 
-                   "--alignment", alignment_file,
-                   "--tree", tree_file or "",
-                   "--output", output_file])
-        # Add optional parameters
-        if kwargs.get("pvalue"):
-            cmd.extend(["--pvalue", str(kwargs["pvalue"])])
-    
-    elif method == "MEME":
-        cmd.extend(["meme", 
-                   "--alignment", alignment_file,
-                   "--tree", tree_file or "",
-                   "--output", output_file])
-        # Add optional parameters
-        if kwargs.get("pvalue"):
-            cmd.extend(["--pvalue", str(kwargs["pvalue"])])
-    
-    else:
-        raise ValueError(f"Unsupported HyPhy method: {method}")
-    
-    # Generate a unique job ID
-    job_id = str(uuid.uuid4())
-    
-    # Create job metadata
-    job_info = {
-        "id": job_id,
+    # Store job information
+    datamonkey_state["jobs"][internal_job_id] = {
         "method": method,
-        "status": "running",
-        "command": cmd,
-        "output_file": output_file,
-        "start_time": time.time(),
         "alignment_file": alignment_file,
         "tree_file": tree_file,
         "kwargs": kwargs,
+        "status": "queued",
+        "start_time": time.time(),
         "results": None,
-        "error": None
+        "error": None,
+        "datamonkey_job_id": None,  # Will be set by the worker
+        "output_file": None  # Will be set by the worker
     }
     
-    # Store the job in the state
-    hyphy_state["jobs"][job_id] = job_info
-    
-    # Define the worker function that will run in a separate thread
-    def worker():
-        try:
-            logger.info(f"Running HyPhy command in background: {' '.join(cmd)}")
-            process = subprocess.run(cmd, capture_output=True, text=True)
-            
-            if process.returncode != 0:
-                error_msg = f"HyPhy {method} analysis failed: {process.stderr}"
-                logger.error(f"HyPhy error: {process.stderr}")
-                hyphy_state["jobs"][job_id]["status"] = "failed"
-                hyphy_state["jobs"][job_id]["error"] = error_msg
-                return
-            
-            # Read the results from the output file
-            try:
-                with open(output_file, 'r') as f:
-                    results = json.load(f)
-                    
-                # Store the results
-                hyphy_state["jobs"][job_id]["status"] = "completed"
-                hyphy_state["jobs"][job_id]["results"] = results
-                hyphy_state["last_results"][method] = results
-                
-            except Exception as e:
-                error_msg = f"Failed to parse HyPhy {method} results: {str(e)}"
-                logger.error(f"Error parsing HyPhy results: {e}")
-                hyphy_state["jobs"][job_id]["status"] = "failed"
-                hyphy_state["jobs"][job_id]["error"] = error_msg
-                
-        except Exception as e:
-            error_msg = f"Unexpected error in HyPhy {method} job: {str(e)}"
-            logger.error(error_msg)
-            hyphy_state["jobs"][job_id]["status"] = "failed"
-            hyphy_state["jobs"][job_id]["error"] = error_msg
-    
-    # Start the worker thread
-    thread = threading.Thread(target=worker)
-    thread.daemon = True  # Make the thread a daemon so it doesn't block program exit
-    thread.start()
+    # Start a worker thread to handle the API interaction
+    worker_thread = threading.Thread(
+        target=run_hyphy_method_async_worker,
+        args=(internal_job_id, method, alignment_file, tree_file, kwargs),
+        daemon=True
+    )
+    worker_thread.start()
     
     # Return the job information
     return {
         "status": "accepted",
-        "job_id": job_id,
-        "method": method,
-        "message": f"HyPhy {method} analysis started in the background"
+        "job_id": internal_job_id,
+        "message": f"Datamonkey {method} analysis started in the background. Use check_job_status to monitor progress."
     }
 
 
+def run_hyphy_method_async_worker(job_id: str, method: str, alignment_file: str, tree_file: Optional[str], kwargs: Dict[str, Any]) -> None:
+    """Worker function to run a HyPhy analysis via the Datamonkey API in the background"""
+    try:
+        # Update job status
+        datamonkey_state["jobs"][job_id]["status"] = "running"
+        
+        # Upload the alignment and tree files to get their handles
+        alignment_handle = upload_file_to_datamonkey(alignment_file)
+        tree_handle = upload_file_to_datamonkey(tree_file) if tree_file else None
+        
+        # Prepare the request payload based on the method
+        payload = {
+            "alignment": alignment_handle,
+        }
+        
+        if tree_handle:
+            payload["tree"] = tree_handle
+        
+        # Add method-specific parameters
+        if method == "BUSTED":
+            if kwargs.get("branches"):
+                payload["branches"] = kwargs["branches"]
+        
+        elif method in ["FEL", "MEME"]:
+            if kwargs.get("pvalue"):
+                payload["pvalue"] = kwargs["pvalue"]
+        
+        # Start the job
+        logger.info(f"Starting {method} job with Datamonkey API")
+        response = requests.post(
+            f"{get_api_url()}/methods/{method.lower()}-start", 
+            json=payload
+        )
+        response.raise_for_status()
+        job_data = response.json()
+        
+        if 'job_id' not in job_data:
+            raise ValueError(f"Invalid response from Datamonkey API: {job_data}")
+            
+        datamonkey_job_id = job_data['job_id']
+        
+        # Store the Datamonkey job ID
+        datamonkey_state["jobs"][job_id]["datamonkey_job_id"] = datamonkey_job_id
+        
+        # Create a placeholder for the output file
+        output_file = os.path.join(datamonkey_state["temp_dir"], f"{method}_{datamonkey_job_id}.json")
+        datamonkey_state["jobs"][job_id]["output_file"] = output_file
+        
+        logger.info(f"Datamonkey {method} job started with ID {datamonkey_job_id}")
+        
+    except Exception as e:
+        logger.error(f"Error starting Datamonkey job: {e}")
+        datamonkey_state["jobs"][job_id]["status"] = "error"
+        datamonkey_state["jobs"][job_id]["error"] = str(e)
+
+
 def run_hyphy_method(method: str, alignment_file: str, tree_file: Optional[str] = None, **kwargs) -> Dict[str, Any]:
-    """Run a HyPhy analysis method on the provided alignment and tree files
+    """Run a HyPhy analysis method on the provided alignment and tree files via the Datamonkey API
     
     All HyPhy methods run asynchronously in the background to avoid timeout issues.
     
@@ -255,51 +326,44 @@ def run_hyphy_method(method: str, alignment_file: str, tree_file: Optional[str] 
     Returns:
         Dictionary containing job information
     """
-    # All HyPhy methods should run asynchronously to avoid timeout issues
+    # Always run asynchronously to avoid timeout issues
     return run_hyphy_method_async(method, alignment_file, tree_file, **kwargs)
 
 
 @mcp.tool()
-def check_hyphy_installation() -> Dict[str, Any]:
-    """Check if HyPhy is installed and accessible
+def check_datamonkey_api() -> Dict[str, Any]:
+    """Check if the Datamonkey API is accessible
     
     Returns:
-        Information about the HyPhy installation
+        Information about the Datamonkey API connection
     """
     try:
-        ensure_hyphy_installed()
+        ensure_datamonkey_api_connection()
         
-        # Get HyPhy version
-        cmd = [hyphy_state["hyphy_path"], "--version"]
-        process = subprocess.run(cmd, capture_output=True, text=True)
+        # Get API health status
+        response = requests.get(f"{get_api_url()}/health")
+        response.raise_for_status()
+        health_data = response.json()
         
-        if process.returncode == 0:
-            version = process.stdout.strip()
-            return {
-                "installed": True,
-                "path": hyphy_state["hyphy_path"],
-                "version": version
-            }
-        else:
-            return {
-                "installed": True,
-                "path": hyphy_state["hyphy_path"],
-                "version": "Unknown (could not determine version)",
-                "error": process.stderr.strip()
-            }
+        return {
+            "connected": True,
+            "url": get_api_url(),
+            "status": health_data.get("status", "OK"),
+            "version": health_data.get("version", "Unknown")
+        }
     except Exception as e:
         return {
-            "installed": False,
+            "connected": False,
+            "url": get_api_url(),
             "error": str(e)
         }
 
 
 @mcp.tool()
-def run_busted(alignment_file: str, tree_file: Optional[str] = None, branches: Optional[str] = None) -> Dict[str, Any]:
-    """Run BUSTED (Branch-Site Unrestricted Statistical Test for Episodic Diversification)
+def start_busted_job(alignment_file: str, tree_file: Optional[str] = None, branches: Optional[str] = None) -> Dict[str, Any]:
+    """Start a BUSTED (Branch-Site Unrestricted Statistical Test for Episodic Diversification) job on the Datamonkey API
     
-    BUSTED is a method to test for evidence of episodic positive selection on a subset of branches.
-    This analysis will run in the background.
+    BUSTED tests for evidence of episodic positive selection on a subset of branches in the phylogeny.
     
     Args:
         alignment_file: Path to the alignment file in FASTA format
@@ -307,28 +371,67 @@ def run_busted(alignment_file: str, tree_file: Optional[str] = None, branches: O
         branches: Branches to test for selection (optional, comma-separated list)
         
     Returns:
-        Job information for the BUSTED analysis
+        Dictionary containing the job ID and status information
     """
     try:
-        kwargs = {}
-        if branches:
-            kwargs["branches"] = branches
-            
-        job_info = run_hyphy_method("BUSTED", alignment_file, tree_file, **kwargs)
+        ensure_datamonkey_api_connection()
         
-        # Since all methods now run asynchronously, return the job information
+        # Upload the alignment file
+        alignment_upload_result = upload_file_to_datamonkey(alignment_file)
+        if alignment_upload_result["status"] != "success":
+            return alignment_upload_result  # Return the error
+        
+        alignment_handle = alignment_upload_result["file_handle"]
+        
+        # Upload the tree file if provided
+        tree_handle = None
+        if tree_file:
+            tree_upload_result = upload_file_to_datamonkey(tree_file)
+            if tree_upload_result["status"] != "success":
+                return tree_upload_result  # Return the error
+            
+            tree_handle = tree_upload_result["file_handle"]
+        
+        # Prepare the request payload
+        payload = {
+            "alignment": alignment_handle
+        }
+        
+        if tree_handle:
+            payload["tree"] = tree_handle
+            
+        if branches:
+            payload["branches"] = branches
+        
+        # Start the BUSTED job
+        logger.info("Starting BUSTED job with Datamonkey API")
+        response = requests.post(
+            f"{get_api_url()}/methods/busted-start", 
+            json=payload
+        )
+        response.raise_for_status()
+        job_data = response.json()
+        
+        if "job_id" not in job_data:
+            return {
+                "status": "error",
+                "error": f"Invalid response from Datamonkey API: {job_data}"
+            }
+            
+        job_id = job_data["job_id"]
+        
         return {
             "status": "accepted",
-            "job_id": job_info["job_id"],
-            "message": "BUSTED analysis started in the background. Use check_job_status to monitor progress.",
+            "job_id": job_id,
+            "message": "BUSTED analysis started on Datamonkey API. Use check_datamonkey_job_status to monitor progress.",
             "input": {
                 "file": alignment_file,
                 "tree": tree_file,
-                "branches_tested": branches or "All"
+                "branches": branches
             }
         }
     except Exception as e:
-        logger.error(f"Error running BUSTED: {e}")
+        logger.error(f"Error starting BUSTED job: {e}")
         return {
             "status": "error",
             "error": str(e)
@@ -482,8 +585,8 @@ def run_meme(alignment_file: str, tree_file: Optional[str] = None, pvalue: float
 
 
 @mcp.tool()
-def check_job_status(job_id: str) -> Dict[str, Any]:
-    """Check the status of a background HyPhy analysis job
+def check_datamonkey_job_status(job_id: str) -> Dict[str, Any]:
+    """Check the status of a job on the Datamonkey API
     
     Args:
         job_id: The ID of the job to check
@@ -491,136 +594,274 @@ def check_job_status(job_id: str) -> Dict[str, Any]:
     Returns:
         Information about the job status and results if completed
     """
-    if job_id not in hyphy_state["jobs"]:
+    try:
+        ensure_datamonkey_api_connection()
+        
+        # Poll the Datamonkey API for job status
+        api_response = requests.get(f"{get_api_url()}/jobs/{job_id}")
+        api_response.raise_for_status()
+        job_status_data = api_response.json()
+        
+        # Basic response with status information
+        response = {
+            "status": job_status_data["status"],
+            "job_id": job_id
+        }
+        
+        # If the job failed, include the error message
+        if job_status_data["status"] == "error":
+            response["error"] = job_status_data.get("error_message", "Unknown error")
+            return response
+        
+        # If the job is still running or queued, just return the status
+        if job_status_data["status"] in ["queued", "running"]:
+            return response
+            
+        # If the job completed successfully, include the results
+        if job_status_data["status"] == "completed":
+            # Fetch the results
+            results_response = requests.get(f"{get_api_url()}/jobs/{job_id}/results")
+            results_response.raise_for_status()
+            results = results_response.json()
+            
+            # Include basic results in the response
+            response["results"] = results
+            
+            # If requested, save results to a file
+            if "save_to" in job_status_data:
+                output_file = job_status_data["save_to"]
+                with open(output_file, "w") as f:
+                    json.dump(results, f)
+                response["output_file"] = output_file
+                
+            return response
+            
+        # Unknown status
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error checking job status with Datamonkey API: {e}")
         return {
             "status": "error",
-            "error": f"Job with ID {job_id} not found"
+            "error": str(e)
         }
-    
-    job_info = hyphy_state["jobs"][job_id]
-    status = job_info["status"]
-    method = job_info["method"]
-    
-    # Basic response with status information
-    response = {
-        "status": status,
-        "job_id": job_id,
-        "method": method,
-        "elapsed_time": time.time() - job_info["start_time"]
-    }
-    
-    # If the job failed, include the error message
-    if status == "failed":
-        response["error"] = job_info["error"]
-        return response
-    
-    # If the job is still running, just return the status
-    if status == "running":
-        return response
-        # If the job completed successfully, include the results
-    if status == "completed":
-        # Process the results based on the method
-        if method == "BUSTED":
-            busted_results = job_info["results"]
-            branches = job_info["kwargs"].get("branches")
-            
-            summary = {
-                "test_results": {
-                    "p_value": busted_results.get("test results", {}).get("p-value"),
-                    "evidence_for_selection": busted_results.get("test results", {}).get("p-value", 1) < 0.05
-                },
-                "input": {
-                    "file": job_info["alignment_file"],
-                    "tree": job_info["tree_file"],
-                    "branches_tested": branches or "All"
-                },
-                "output_file": job_info["output_file"]
-            }
-            
-            response["summary"] = summary
-            response["full_results"] = busted_results
-            
-        elif method == "FEL":
-            fel_results = job_info["results"]
-            pvalue = job_info["kwargs"].get("pvalue", 0.1)
-            
-            # Count positively and negatively selected sites
-            positive_sites = []
-            negative_sites = []
-            
-            if "MLE" in fel_results:
-                for site, data in fel_results["MLE"].items():
-                    if isinstance(data, dict) and "p-value" in data and "beta" in data and "alpha" in data:
-                        if data["p-value"] <= pvalue:
-                            if data["beta"] > data["alpha"]:
-                                positive_sites.append(int(site))
-                            else:
-                                negative_sites.append(int(site))
-            
-            summary = {
-                "input": {
-                    "file": job_info["alignment_file"],
-                    "tree": job_info["tree_file"],
-                    "pvalue": pvalue
-                },
-                "results": {
-                    "positive_selection_sites": positive_sites,
-                    "negative_selection_sites": negative_sites,
-                    "total_positive_sites": len(positive_sites),
-                    "total_negative_sites": len(negative_sites)
-                },
-                "output_file": job_info["output_file"]
-            }
-            
-            response["summary"] = summary
-            response["full_results"] = fel_results
-            
-        elif method == "MEME":
-            meme_results = job_info["results"]
-            pvalue = job_info["kwargs"].get("pvalue", 0.1)
-            
-            # Count sites under episodic selection
-            selected_sites = []
-            
-            if "MLE" in meme_results:
-                for site, data in meme_results["MLE"].items():
-                    if isinstance(data, dict) and "p-value" in data:
-                        if data["p-value"] <= pvalue:
-                            selected_sites.append(int(site))
-            
-            summary = {
-                "input": {
-                    "file": job_info["alignment_file"],
-                    "tree": job_info["tree_file"],
-                    "pvalue": pvalue
-                },
-                "results": {
-                    "episodic_selection_sites": selected_sites,
-                    "total_sites_under_selection": len(selected_sites)
-                },
-                "output_file": job_info["output_file"]
-            }
-            
-            response["summary"] = summary
-            response["full_results"] = meme_results
-        
-        # For other methods, just include the raw results
-        else:
-            response["results"] = job_info["results"]
-        
-        return response
     
     # Shouldn't get here, but just in case
     return response
 
 
 @mcp.tool()
+def start_fel_job(alignment_file: str, tree_file: Optional[str] = None, branches: Optional[str] = None, pvalue: float = 0.1) -> Dict[str, Any]:
+    """Start a FEL (Fixed Effects Likelihood) analysis job on the Datamonkey API
+    
+    Args:
+        alignment_file: Path to the alignment file
+        tree_file: Optional path to the tree file
+        branches: Optional branches to test (comma-separated list or 'All')
+        pvalue: P-value threshold for significance (default: 0.1)
+        
+    Returns:
+        Information about the started job
+    """
+    try:
+        ensure_datamonkey_api_connection()
+        
+        # Upload the alignment file
+        alignment_handle = upload_file_to_datamonkey(alignment_file)
+        if "error" in alignment_handle:
+            return alignment_handle
+        
+        # Upload the tree file if provided
+        tree_handle = None
+        if tree_file:
+            tree_handle = upload_file_to_datamonkey(tree_file)
+            if "error" in tree_handle:
+                return tree_handle
+        
+        # Prepare the payload for the FEL job
+        payload = {
+            "alignment": alignment_handle["handle"],
+            "pvalue": pvalue
+        }
+        
+        if tree_handle:
+            payload["tree"] = tree_handle["handle"]
+            
+        if branches:
+            payload["branches"] = branches
+        
+        # Start the FEL job
+        logger.info("Starting FEL job with Datamonkey API")
+        response = requests.post(
+            f"{get_api_url()}/methods/fel-start", 
+            json=payload
+        )
+        response.raise_for_status()
+        job_data = response.json()
+        
+        if "job_id" not in job_data:
+            return {
+                "status": "error",
+                "error": "Failed to start FEL job: No job_id in response"
+            }
+        
+        job_id = job_data["job_id"]
+        
+        return {
+            "status": "accepted",
+            "job_id": job_id,
+            "message": "FEL analysis started on Datamonkey API. Use check_datamonkey_job_status to monitor progress.",
+            "input": {
+                "file": alignment_file,
+                "tree": tree_file,
+                "pvalue": pvalue,
+                "branches": branches
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error starting FEL job: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+@mcp.tool()
+def start_meme_job(alignment_file: str, tree_file: Optional[str] = None, branches: Optional[str] = None, pvalue: float = 0.1) -> Dict[str, Any]:
+    """Start a MEME (Mixed Effects Model of Evolution) analysis job on the Datamonkey API
+    
+    Args:
+        alignment_file: Path to the alignment file
+        tree_file: Optional path to the tree file
+        branches: Optional branches to test (comma-separated list or 'All')
+        pvalue: P-value threshold for significance (default: 0.1)
+        
+    Returns:
+        Information about the started job
+    """
+    try:
+        ensure_datamonkey_api_connection()
+        
+        # Upload the alignment file
+        alignment_handle = upload_file_to_datamonkey(alignment_file)
+        if "error" in alignment_handle:
+            return alignment_handle
+        
+        # Upload the tree file if provided
+        tree_handle = None
+        if tree_file:
+            tree_handle = upload_file_to_datamonkey(tree_file)
+            if "error" in tree_handle:
+                return tree_handle
+        
+        # Prepare the payload for the MEME job
+        payload = {
+            "alignment": alignment_handle["handle"],
+            "pvalue": pvalue
+        }
+        
+        if tree_handle:
+            payload["tree"] = tree_handle["handle"]
+            
+        if branches:
+            payload["branches"] = branches
+        
+        # Start the MEME job
+        logger.info("Starting MEME job with Datamonkey API")
+        response = requests.post(
+            f"{get_api_url()}/methods/meme-start", 
+            json=payload
+        )
+        response.raise_for_status()
+        job_data = response.json()
+        
+        if "job_id" not in job_data:
+            return {
+                "status": "error",
+                "error": "Failed to start MEME job: No job_id in response"
+            }
+        
+        job_id = job_data["job_id"]
+        
+        return {
+            "status": "accepted",
+            "job_id": job_id,
+            "message": "MEME analysis started on Datamonkey API. Use check_datamonkey_job_status to monitor progress.",
+            "input": {
+                "file": alignment_file,
+                "tree": tree_file,
+                "pvalue": pvalue,
+                "branches": branches
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error starting MEME job: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+@mcp.tool()
+def fetch_datamonkey_job_results(job_id: str, save_to: Optional[str] = None) -> Dict[str, Any]:
+    """Fetch the results of a completed job from the Datamonkey API
+    
+    Args:
+        job_id: The ID of the job to fetch results for
+        save_to: Optional path to save the results to a JSON file
+        
+    Returns:
+        The job results or an error message
+    """
+    try:
+        ensure_datamonkey_api_connection()
+        
+        # First check if the job is completed
+        status_response = requests.get(f"{get_api_url()}/jobs/{job_id}")
+        status_response.raise_for_status()
+        job_status = status_response.json()
+        
+        if job_status["status"] != "completed":
+            return {
+                "status": "error",
+                "error": f"Job {job_id} is not completed. Current status: {job_status['status']}"
+            }
+        
+        # Fetch the results
+        results_response = requests.get(f"{get_api_url()}/jobs/{job_id}/results")
+        results_response.raise_for_status()
+        results = results_response.json()
+        
+        # Save to file if requested
+        if save_to:
+            with open(save_to, "w") as f:
+                json.dump(results, f, indent=2)
+        
+        return {
+            "status": "success",
+            "job_id": job_id,
+            "results": results,
+            "output_file": save_to if save_to else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching job results from Datamonkey API: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+@mcp.tool()
 def get_available_methods() -> Dict[str, Any]:
-    """Get a list of available HyPhy analysis methods
+    """Get a list of available HyPhy analysis methods supported by the Datamonkey API
     
     Returns:
-        List of available HyPhy methods with descriptions
+        A list of available methods and their descriptions
     """
+    # Check if Datamonkey API is reachable
+    ensure_datamonkey_api_connection()
+    
     methods = [
         {
             "name": "BUSTED",
@@ -642,3 +883,7 @@ def get_available_methods() -> Dict[str, Any]:
     return {
         "methods": methods
     }
+
+
+if __name__ == "__main__":
+    mcp.run()
