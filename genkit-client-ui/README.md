@@ -1,6 +1,6 @@
 # HyPhy Chat UI
 
-A Svelte-based chat interface for interacting with the HyPhy MCP server through the Genkit client. This frontend provides a user-friendly way to request phylogenetic analyses using natural language.
+A Svelte-based chat interface for interacting with the Genkit client's HyPhy tools. This frontend provides a user-friendly way to request phylogenetic analyses using natural language.
 
 ## Overview
 

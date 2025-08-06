@@ -1,2 +1,0 @@
-web: python -m src.__main__
-hyphy-mcp: python -m src.__main__

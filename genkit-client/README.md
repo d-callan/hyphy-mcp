@@ -1,21 +1,22 @@
-# Genkit Client for HyPhy MCP
+# Genkit Client for HyPhy
 
-A Node.js backend that connects to the HyPhy MCP server using Genkit. This component provides a bridge between the HyPhy MCP server and the chat UI, allowing natural language processing of requests for phylogenetic analysis.
+A Node.js backend with integrated HyPhy tools that communicate directly with the Datamonkey API. This component provides a chat interface for phylogenetic analysis using natural language processing.
 
 ## Overview
 
 This Genkit client:
 
 1. Configures and initializes a Genkit instance with the selected AI model
-2. Connects to the HyPhy MCP server to access its tools
+2. Implements HyPhy tools directly using TypeScript and the Datamonkey API
 3. Exposes a REST API for the frontend chat UI
 4. Processes natural language requests using the configured AI model
+5. Maintains session context between messages for a coherent conversation experience
 
 ## Prerequisites
 
 - Node.js (v24.x or compatible version)
 - npm (v10.x or compatible version)
-- Access to a HyPhy API (local or remote)
+- Access to the Datamonkey API (local or remote)
 
 ## Configuration
 
@@ -72,7 +73,7 @@ npm run dev
 This will:
 - Start the Express API server on port 3000 (or as configured in .env)
 - Start the Svelte development server (typically on port 5173)
-- Connect to the HyPhy MCP server
+- Initialize all HyPhy tools with connections to the Datamonkey API
 
 ### Individual Components
 
@@ -106,7 +107,7 @@ npm run build
 
 ## Available HyPhy Methods
 
-The following methods are available through the MCP server:
+The following methods are available through the integrated HyPhy tools:
 
 - BUSTED (Branch-Site Unrestricted Statistical Test for Episodic Diversification)
 - FEL (Fixed Effects Likelihood)

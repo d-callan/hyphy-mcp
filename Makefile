@@ -1,10 +1,6 @@
 # HyPhy MCP Full-Stack Application Makefile
 
-# Default Python version
-PYTHON_VERSION ?= 3.10
-
 # Default paths
-PYTHON_MCP_SERVER_DIR = python-mcp-server
 GENKIT_CLIENT_DIR = genkit-client
 GENKIT_UI_DIR = genkit-client-ui
 
@@ -15,41 +11,28 @@ SERVER_PORT ?= 3000
 DATAMONKEY_API_URL ?= http://localhost
 DATAMONKEY_API_PORT ?= 9300
 
-.PHONY: help install install-python install-node install-ui setup-env \
-        start start-mcp start-api start-ui dev clean
+.PHONY: help install install-node install-ui setup-env \
+        start start-api start-ui dev clean
 
 help:
 	@echo "HyPhy MCP Full-Stack Application"
 	@echo ""
 	@echo "Available commands:"
-	@echo "  make install          - Install all components (Python MCP server, Genkit client, and UI)"
-	@echo "  make install-python   - Install only the Python MCP server"
+	@echo "  make install          - Install all components (Genkit client and UI)"
 	@echo "  make install-node     - Install only the Genkit client"
 	@echo "  make install-ui       - Install only the Svelte UI"
 	@echo "  make setup-env        - Set up environment files"
 	@echo "  make start            - Start the full stack (API and UI)"
-	@echo "  make start-mcp        - Start only the Python MCP server"
 	@echo "  make start-api        - Start only the Genkit API server"
 	@echo "  make start-ui         - Start only the Svelte UI"
 	@echo "  make dev              - Start the development environment (API and UI)"
 	@echo "  make clean            - Clean up temporary files and directories"
 	@echo ""
 	@echo "Environment variables:"
-	@echo "  PYTHON_VERSION        - Python version to use (default: 3.10)"
 	@echo "  SERVER_PORT           - Port for the API server (default: 3000)"
 
 # Installation targets
-install: install-python install-node install-ui setup-env
-
-install-python:
-	@echo "Installing Python MCP server..."
-	cd $(PYTHON_MCP_SERVER_DIR) && \
-	if [ ! -d ".venv" ]; then \
-		uv venv -p $(PYTHON_VERSION); \
-	fi && \
-	. .venv/bin/activate && \
-	uv pip install -e .
-	@echo "Python MCP server installed successfully."
+install: install-node install-ui setup-env
 
 install-node:
 	@echo "Installing Genkit client..."
@@ -72,13 +55,6 @@ setup-env:
 
 # Start targets
 start: start-api start-ui
-
-start-mcp:
-	@echo "Starting Python MCP server..."
-	cd $(PYTHON_MCP_SERVER_DIR) && \
-	. .venv/bin/activate && \
-	python3 -m hyphy_mcp &
-	@echo "Python MCP server started."
 
 start-api:
 	@echo "Starting Genkit API server..."

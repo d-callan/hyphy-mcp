@@ -1,18 +1,13 @@
 # HyPhy MCP Full-Stack Application
 
-A full-stack application for phylogenetic analysis using HyPhy methods through a natural language interface. This project combines a Python MCP server, a Node.js Genkit client, and a Svelte chat UI to enable AI-powered analysis of FASTA sequence alignments.
+A full-stack application for phylogenetic analysis using HyPhy methods through a natural language interface. This project combines a Node.js Genkit client with integrated HyPhy tools and a Svelte chat UI to enable AI-powered analysis of FASTA sequence alignments.
 
 ## Project Architecture
 
-This repository contains three main components that work together:
+This repository contains two main components that work together:
 
-1. **Python MCP Server** (`/python-mcp-server`): 
-   - A Model Context Protocol server that exposes HyPhy's evolutionary analysis methods
-   - Communicates with the Datamonkey API to run analyses without requiring a local HyPhy installation
-   - Provides tools for processing FASTA files and interpreting results
-
-2. **Genkit Client** (`/genkit-client`):
-   - A Node.js backend that connects to the HyPhy MCP server
+1. **Genkit Client** (`/genkit-client`):
+   - A Node.js backend with integrated HyPhy tools that communicate directly with the Datamonkey API
    - Configures and initializes a Genkit instance with the selected AI model
    - Exposes a REST API for the frontend chat UI
    - Processes natural language requests using the configured AI model
@@ -27,7 +22,6 @@ This repository contains three main components that work together:
 
 Each component has its own README with specific setup instructions:
 
-- [Python MCP Server README](/python-mcp-server/README.md)
 - [Genkit Client README](/genkit-client/README.md)
 - [Svelte Chat UI README](/genkit-client-ui/README.md)
 
@@ -45,15 +39,7 @@ make start
 
 #### Manual Setup
 
-1. **Set up the Python MCP Server**:
-   ```bash
-   cd python-mcp-server
-   uv venv -p 3.10
-   source .venv/bin/activate
-   uv pip install -e .
-   ```
-
-2. **Set up the Genkit Client**:
+1. **Set up the Genkit Client**:
    ```bash
    cd genkit-client
    npm install
@@ -72,10 +58,11 @@ This will start both the Express API server and the Svelte UI development server
 ## Features
 
 - **Natural Language Interface**: Ask questions and request analyses in plain English
-- **Multiple HyPhy Methods**: Support for BUSTED, FEL, MEME, aBSREL, and more
-- **API-Based Processing**: No local HyPhy installation required
+- **Multiple HyPhy Methods**: Support for BUSTED, FEL, MEME, aBSREL, BGM, FADE, FUBAR, GARD, MultiHit, NRM, RELAX, SLAC, Slatkin, and more
+- **Direct Datamonkey API Integration**: No local HyPhy installation required
 - **Configurable AI Models**: Support for Google AI, OpenAI, Anthropic, Ollama, and more
 - **Modern UI**: Clean, responsive chat interface for easy interaction
+- **Session Management**: Persistent conversation history between messages
 
 ## Development Workflow
 
@@ -86,9 +73,6 @@ For development, you can run components separately or together:
 ```bash
 # Start all components
 make start
-
-# Start only the Python MCP server
-make start-mcp
 
 # Start only the Genkit API server
 make start-api
@@ -106,9 +90,6 @@ make dev
 # Start all components
 ./start.sh --mode all
 
-# Start only the Python MCP server
-./start.sh --mode mcp
-
 # Start only the Genkit API server
 ./start.sh --mode api
 
@@ -123,7 +104,6 @@ make dev
 
 You can also run each component separately using direct commands:
 
-- **Python MCP Server**: `cd python-mcp-server && python -m hyphy_mcp`
 - **Genkit Client API**: `cd genkit-client && npm run dev:server`
 - **Svelte UI**: `cd genkit-client-ui && npm run dev`
 
