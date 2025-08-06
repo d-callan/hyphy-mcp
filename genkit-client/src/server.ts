@@ -5,6 +5,8 @@ import { chatFlow, listSessions } from './index';
 import { logger } from '@genkit-ai/core/logging';
 import fs from 'fs';
 import path from 'path';
+import multer from 'multer';
+import { fileManager } from './fileManager';
 
 // Load environment variables
 dotenv.config();
@@ -15,6 +17,30 @@ const PORT = process.env.SERVER_PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Configure multer for file uploads
+const uploadsDir = path.join(__dirname, '../uploads');
+
+// Create uploads directory if it doesn't exist
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadsDir);
+  },
+  filename: function (req, file, cb) {
+    // Use original filename but add timestamp to avoid conflicts
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + '-' + file.originalname);
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
 
 // We're using the chatFlow exported from index.ts
 // No need to initialize a new model or define a new flow here
@@ -94,6 +120,74 @@ async function getLatestSessionId(): Promise<string> {
     return 'error-getting-session';
   }
 }
+
+// File upload endpoint
+app.post('/api/upload', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const { sessionId } = req.body;
+    const file = req.file;
+    
+    logger.info(`File uploaded: ${file.originalname} (${file.size} bytes) for session: ${sessionId || 'new session'}`);
+    
+    // Register the file with our file manager
+    fileManager.registerFile({
+      filename: file.filename,
+      originalName: file.originalname,
+      path: file.path,
+      size: file.size,
+      mimetype: file.mimetype,
+      sessionId: sessionId || undefined,
+      uploadTime: Date.now()
+    });
+    
+    // Return file information to the client
+    return res.json({
+      success: true,
+      file: {
+        filename: file.filename,
+        originalName: file.originalname,
+        path: file.path,
+        size: file.size,
+        mimetype: file.mimetype
+      },
+      message: `File ${file.originalname} uploaded successfully`
+    });
+  } catch (error) {
+    logger.error('Error uploading file:', error);
+    return res.status(500).json({ error: 'Failed to upload file' });
+  }
+});
+
+// Endpoint to get files for a session
+app.get('/api/files/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    if (!sessionId) {
+      return res.status(400).json({ error: 'Session ID is required' });
+    }
+    
+    const files = fileManager.getSessionFiles(sessionId);
+    
+    return res.json({
+      success: true,
+      files: files.map(file => ({
+        filename: file.filename,
+        originalName: file.originalName,
+        size: file.size,
+        mimetype: file.mimetype,
+        uploadTime: file.uploadTime
+      }))
+    });
+  } catch (error) {
+    logger.error('Error getting session files:', error);
+    return res.status(500).json({ error: 'Failed to get session files' });
+  }
+});
 
 // Start the server
 app.listen(PORT, () => {

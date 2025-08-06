@@ -6,6 +6,7 @@ import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
 import { FileSessionStore } from './sessionStore';
+import { fileManager } from './fileManager';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -1645,6 +1646,7 @@ export const chatFlow = ai.defineFlow(
     inputSchema: z.object({
       message: z.string().describe('User message for the AI'),
       sessionId: z.string().optional().describe('Optional session ID to continue a conversation'),
+      fileId: z.string().optional().describe('Optional ID of a file to analyze'),
     }),
     outputSchema: z.string().describe('AI response from chat'),
   },
@@ -1671,6 +1673,24 @@ export const chatFlow = ai.defineFlow(
     // Add the user message to the conversation history
     session.messages.push({ role: 'user', content: input.message });
 
+    // Check if there are any uploaded files for this session
+    const sessionFiles = fileManager.getSessionFiles(sessionId);
+    let fileContext = '';
+    
+    if (sessionFiles.length > 0) {
+      // Sort files by upload time (newest first)
+      sessionFiles.sort((a, b) => b.uploadTime - a.uploadTime);
+      
+      // Include information about the most recent files (up to 5)
+      const recentFiles = sessionFiles.slice(0, 5);
+      fileContext = '\n\nUploaded files available for analysis:\n' + 
+        recentFiles.map((file, index) => {
+          return `${index + 1}. ${file.originalName} (${Math.round(file.size / 1024)} KB) - Use this path for analysis: ${file.path}`;
+        }).join('\n');
+      
+      logger.debug(`Including ${recentFiles.length} files in context`);
+    }
+    
     // Generate a response using the available tools and conversation history
     // Build a prompt that includes the conversation history
     let conversationContext = '';
@@ -1686,8 +1706,8 @@ export const chatFlow = ai.defineFlow(
     }
     
     const prompt = conversationContext 
-      ? `${conversationContext}\n\nUser: ${input.message}\n\nBased on this conversation, consider if you need to use any available tools from 'datamonkey' to generate a response. Respond in a helpful and informative manner.`
-      : `User says: "${input.message}". Based on this, consider if you need to use any available tools from 'datamonkey' to generate a response. Respond in a helpful and informative manner.`;
+      ? `${conversationContext}\n\nUser: ${input.message}${fileContext}\n\nBased on this conversation and available files, consider if you need to use any available tools from 'datamonkey' to generate a response. If the user wants to analyze a file, use the appropriate HyPhy method tool with the file path. Respond in a helpful and informative manner.`
+      : `User says: "${input.message}"${fileContext}\n\nBased on this and available files, consider if you need to use any available tools from 'datamonkey' to generate a response. If the user wants to analyze a file, use the appropriate HyPhy method tool with the file path. Respond in a helpful and informative manner.`;
     
     const llmResponse = await ai.generate({
       prompt,

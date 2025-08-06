@@ -25,12 +25,14 @@
   "dependencies": {
     "@genkit-ai/compat-oai": "^1.15.5",
     "@genkit-ai/googleai": "^1.15.5",
+    "@types/multer": "^2.0.0",
     "axios": "^1.11.0",
     "dotenv": "^17.2.1",
     "genkit": "^1.15.5",
     "genkitx-anthropic": "^0.23.1",
     "genkitx-mcp": "^1.14.1",
-    "genkitx-ollama": "^1.15.5"
+    "genkitx-ollama": "^1.15.5",
+    "multer": "^2.0.2"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
