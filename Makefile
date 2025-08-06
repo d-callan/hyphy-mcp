@@ -27,7 +27,7 @@ help:
 	@echo "  make install-node     - Install only the Genkit client"
 	@echo "  make install-ui       - Install only the Svelte UI"
 	@echo "  make setup-env        - Set up environment files"
-	@echo "  make start            - Start the full stack (MCP server, API, and UI)"
+	@echo "  make start            - Start the full stack (API and UI)"
 	@echo "  make start-mcp        - Start only the Python MCP server"
 	@echo "  make start-api        - Start only the Genkit API server"
 	@echo "  make start-ui         - Start only the Svelte UI"
@@ -71,13 +71,13 @@ setup-env:
 	fi
 
 # Start targets
-start: start-mcp start-api start-ui
+start: start-api start-ui
 
 start-mcp:
 	@echo "Starting Python MCP server..."
 	cd $(PYTHON_MCP_SERVER_DIR) && \
 	. .venv/bin/activate && \
-	python -m hyphy_mcp &
+	python3 -m hyphy_mcp &
 	@echo "Python MCP server started."
 
 start-api:

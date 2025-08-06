@@ -151,7 +151,7 @@ const ai = genkit({
       serverProcess: {
         command: 'bash',
         args: [
-          'source ./python-mcp-server/venv/bin/activate && hyphy-mcp',
+          '-c', 'source ../python-mcp-server/.venv/bin/activate && python -m hyphy_mcp',
         ],
       },
     }),
