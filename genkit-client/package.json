@@ -25,6 +25,7 @@
   "dependencies": {
     "@genkit-ai/compat-oai": "^1.15.5",
     "@genkit-ai/googleai": "^1.15.5",
+    "axios": "^1.11.0",
     "dotenv": "^17.2.1",
     "genkit": "^1.15.5",
     "genkitx-anthropic": "^0.23.1",
