@@ -1,3 +1,6 @@
+# local file based session store for dev
+genkit-client/sessions/*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
