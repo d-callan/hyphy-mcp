@@ -2,6 +2,7 @@
   import Chat from '$lib/components/Chat.svelte';
   import SessionSidebar from '$lib/components/SessionSidebar.svelte';
   import { onMount } from 'svelte';
+  import { base } from '$app/paths';
   
   // State
   let activeSessionId: string | null = null;
@@ -80,8 +81,13 @@
 
 <div class="container">
   <header>
-    <h1>MonkeyBot</h1>
-    <p>Analyze FASTA files using HyPhy phylogenetic methods</p>
+    <div class="header-content">
+      <img src={`${base}/images/monkeybot.png`} alt="MonkeyBot" class="monkeybot-logo" />
+      <div>
+        <h1>MonkeyBot</h1>
+        <p>Analyze FASTA files using HyPhy phylogenetic methods</p>
+      </div>
+    </div>
   </header>
   
   <main class="chat-layout">
@@ -119,6 +125,19 @@
   header {
     margin-bottom: 2rem;
     text-align: center;
+  }
+  
+  .header-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+  }
+  
+  .monkeybot-logo {
+    width: 80px;
+    height: 80px;
+    object-fit: contain;
   }
   
   h1 {
