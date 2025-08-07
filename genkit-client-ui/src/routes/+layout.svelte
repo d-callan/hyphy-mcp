@@ -12,7 +12,7 @@
   <nav class="main-nav">
     <div class="nav-container">
       <div class="logo">
-        <a href="/">HyPhy MCP</a>
+        <a href="/">MonkeyBot</a>
       </div>
       <ul class="nav-links">
         <li><a href="/">Chat</a></li>

@@ -8,6 +8,7 @@ import path from 'path';
 import multer from 'multer';
 import { fileManager } from './fileManager';
 import { globalJobStore } from './globalJobStore';
+import { FileSessionStore } from './sessionStore';
 
 // Load environment variables
 dotenv.config();
@@ -298,6 +299,88 @@ app.delete('/api/jobs/:jobId', async (req, res) => {
   } catch (error) {
     logger.error('Error deleting job:', error);
     return res.status(500).json({ error: 'Failed to delete job' });
+  }
+});
+
+// Sessions API endpoints
+
+// Create a session store instance for API access
+const sessionStore = new FileSessionStore('./data/sessions');
+
+// Get all sessions
+app.get('/api/sessions', async (req, res) => {
+  try {
+    const sessionIds = await listSessions();
+    
+    // Get full session info for each session
+    const sessionsWithInfo = await Promise.all(
+      sessionIds.map(async (id) => {
+        try {
+          // Load session from the session store
+          const sessionData = await sessionStore.load(id);
+          if (sessionData) {
+            // Get session metadata or create default timestamps
+            const metadata = sessionData.metadata || {};
+            return {
+              id,
+              created: metadata.created || Date.now(),
+              updated: metadata.updated || Date.now(),
+              messageCount: sessionData.messages?.length || 0
+            };
+          }
+          return null;
+        } catch (err) {
+          logger.warn(`Error loading session ${id}:`, err);
+          return null;
+        }
+      })
+    );
+    
+    // Filter out null sessions (failed to load)
+    const validSessions = sessionsWithInfo.filter(Boolean);
+    
+    return res.json({
+      success: true,
+      sessions: validSessions
+    });
+  } catch (error) {
+    logger.error('Error listing sessions:', error);
+    return res.status(500).json({ error: 'Failed to list sessions' });
+  }
+});
+
+// Get a specific session
+app.get('/api/sessions/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    if (!sessionId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Session ID is required' 
+      });
+    }
+    
+    // Load session from the session store
+    const sessionData = await sessionStore.load(sessionId);
+    
+    if (!sessionData) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Session not found' 
+      });
+    }
+    
+    return res.json({
+      success: true,
+      session: sessionData
+    });
+  } catch (error) {
+    logger.error('Error getting session:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Failed to get session' 
+    });
   }
 });
 

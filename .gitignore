@@ -1,6 +1,7 @@
 # local file based session store for dev
 genkit-client/sessions/*
 genkit-client/uploads/*
+genkit-client/data/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
