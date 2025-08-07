@@ -1,0 +1,29 @@
+{
+  "id": "session-1754537746818-vi2deqk",
+  "messages": [
+    {
+      "role": "user",
+      "content": "hi"
+    },
+    {
+      "role": "assistant",
+      "content": "Hello! How can I help you today?"
+    },
+    {
+      "role": "user",
+      "content": "can you rn busted on those files"
+    },
+    {
+      "role": "assistant",
+      "content": "The BUSTED analysis is complete. You can retrieve the results using the job ID: `30278635d8616db2c5d4cadec648c015afabf423ad541612dba76dc572dfa7b4`."
+    },
+    {
+      "role": "user",
+      "content": "please fetch"
+    },
+    {
+      "role": "assistant",
+      "content": "The BUSTED analysis results have been fetched.\n\n**Likelihood Ratio Test (LRT):** 26.059912\n**p-value:** 0.0000010968113\n\nThis indicates a statistically significant evidence of episodic diversifying selection.\n\n**Model Fits:**\n*   **Unconstrained model:**\n    *   Log Likelihood: -12867.441\n    *   AIC-c: 25924.318\n    *   Estimated parameters: 94\n*   **Constrained model:**\n    *   Log Likelihood: -12880.471\n    *   AIC-c: 25948.348\n    *   Estimated parameters: 93\n\n**Rate Distributions (Unconstrained Model):**\n*   **Synonymous site-to-site rates:**\n    *   Rate 0: 0.3826 (Proportion: 0.5936)\n    *   Rate 1: 1.1245 (Proportion: 0.3478)\n    *   Rate 2: 6.5137 (Proportion: 0.0586)\n*   **Test (Non-synonymous/synonymous rate ratio - omega):**\n    *   Omega 0: 0 (Proportion: 0.6159)\n    *   Omega 1: 0.1423 (Proportion: 0.3722)\n    *   Omega 2: 6.9950 (Proportion: 0.0119)\n\nThe results indicate that a significant proportion of sites are evolving under purifying selection (omega < 1), and a small proportion of sites are under diversifying selection (omega > 1)."
+    }
+  ]
+}

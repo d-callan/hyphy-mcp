@@ -1,12 +1,13 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { chatFlow, listSessions } from './index';
+import { chatFlow, listSessions, getAllJobs, getJob, addJob, updateJobStatus, deleteJob } from './index';
 import { logger } from '@genkit-ai/core/logging';
 import fs from 'fs';
 import path from 'path';
 import multer from 'multer';
 import { fileManager } from './fileManager';
+import { globalJobStore } from './globalJobStore';
 
 // Load environment variables
 dotenv.config();
@@ -186,6 +187,117 @@ app.get('/api/files/:sessionId', async (req, res) => {
   } catch (error) {
     logger.error('Error getting session files:', error);
     return res.status(500).json({ error: 'Failed to get session files' });
+  }
+});
+
+// Global jobs API endpoints
+
+// Get all jobs
+app.get('/api/jobs', async (req, res) => {
+  try {
+    const jobs = await getAllJobs();
+    return res.json({
+      success: true,
+      jobs
+    });
+  } catch (error) {
+    logger.error('Error getting jobs:', error);
+    return res.status(500).json({ error: 'Failed to get jobs' });
+  }
+});
+
+// Get a specific job
+app.get('/api/jobs/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    if (!jobId) {
+      return res.status(400).json({ error: 'Job ID is required' });
+    }
+    
+    const job = await getJob(jobId);
+    
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    
+    return res.json({
+      success: true,
+      job
+    });
+  } catch (error) {
+    logger.error('Error getting job:', error);
+    return res.status(500).json({ error: 'Failed to get job' });
+  }
+});
+
+// Add or update a job
+app.post('/api/jobs', async (req, res) => {
+  try {
+    const jobInfo = req.body;
+    
+    if (!jobInfo || !jobInfo.jobId) {
+      return res.status(400).json({ error: 'Job information with jobId is required' });
+    }
+    
+    // Use the exported function from index.ts
+    await addJob(jobInfo);
+    const success = true;
+    
+    return res.json({
+      success,
+      message: success ? `Job ${jobInfo.jobId} added/updated successfully` : `Failed to add/update job ${jobInfo.jobId}`
+    });
+  } catch (error) {
+    logger.error('Error adding/updating job:', error);
+    return res.status(500).json({ error: 'Failed to add/update job' });
+  }
+});
+
+// Update job status
+app.patch('/api/jobs/:jobId/status', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { status, results } = req.body;
+    
+    if (!jobId) {
+      return res.status(400).json({ error: 'Job ID is required' });
+    }
+    
+    if (!status) {
+      return res.status(400).json({ error: 'Status is required' });
+    }
+    
+    const success = globalJobStore.updateJobStatus(jobId, status, results);
+    
+    return res.json({
+      success,
+      message: success ? `Job ${jobId} status updated to ${status}` : `Failed to update job ${jobId} status`
+    });
+  } catch (error) {
+    logger.error('Error updating job status:', error);
+    return res.status(500).json({ error: 'Failed to update job status' });
+  }
+});
+
+// Delete a job
+app.delete('/api/jobs/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    if (!jobId) {
+      return res.status(400).json({ error: 'Job ID is required' });
+    }
+    
+    const success = globalJobStore.deleteJob(jobId);
+    
+    return res.json({
+      success,
+      message: success ? `Job ${jobId} deleted successfully` : `Failed to delete job ${jobId}`
+    });
+  } catch (error) {
+    logger.error('Error deleting job:', error);
+    return res.status(500).json({ error: 'Failed to delete job' });
   }
 });
 

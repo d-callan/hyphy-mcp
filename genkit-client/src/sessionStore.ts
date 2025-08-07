@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 // Define interfaces for the session store
-interface ChatSession {
+export interface ChatSession {
   id: string;
   messages: any[];
   metadata?: Record<string, any>;

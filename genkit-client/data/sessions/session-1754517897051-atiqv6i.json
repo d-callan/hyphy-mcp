@@ -1,0 +1,13 @@
+{
+  "id": "session-1754517897051-atiqv6i",
+  "messages": [
+    {
+      "role": "user",
+      "content": "hi"
+    },
+    {
+      "role": "assistant",
+      "content": "Hello! How can I help you today? I can assist you with various phylogenetic analyses using the Datamonkey API, such as BUSTED, FEL, MEME, and more. Just let me know what you'd like to do!"
+    }
+  ]
+}
