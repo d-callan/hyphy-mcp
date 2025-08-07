@@ -5,6 +5,11 @@
   import { onMount } from 'svelte';
   import { base } from '$app/paths';
   
+  // Stepper state
+  let activeStep = 'jobs';
+  let selectedJobId: string | null = null;
+  let canViewVisualizations = false;
+  
   // State
   let activeSessionId: string | null = null;
   let showSidebar = false; // Collapsed by default
@@ -75,6 +80,21 @@
     }
   }
   
+  // Handle step navigation
+  function navigateToStep(stepId: string) {
+    // Only allow navigation to visualizations if a job is selected
+    if (stepId === 'viz' && !canViewVisualizations) {
+      return;
+    }
+    activeStep = stepId;
+  }
+  
+  // Handle job selection
+  function selectJob(jobId: string) {
+    selectedJobId = jobId;
+    canViewVisualizations = true;
+  }
+  
   onMount(() => {
     loadSessions();
   });
@@ -92,9 +112,49 @@
   </header>
   
   <main class="main-layout">
-    <div class="jobs-section">
-      <h2>HyPhy Jobs</h2>
-      <Jobs />
+    <div class="analyses-section">
+      <h2>Analyses</h2>
+      
+      <div class="stepper" role="tablist" aria-label="Analysis Steps">
+        <button 
+          class="step {activeStep === 'jobs' ? 'active' : ''}" 
+          on:click={() => navigateToStep('jobs')}
+          on:keydown={(e) => e.key === 'Enter' && navigateToStep('jobs')}
+          role="tab"
+          aria-selected={activeStep === 'jobs'}
+          tabindex="0"
+        >
+          <div class="step-number">1</div>
+          <div class="step-label">Jobs</div>
+        </button>
+        <div class="step-connector" aria-hidden="true"></div>
+        <button 
+          class="step {activeStep === 'viz' ? 'active' : ''} {!canViewVisualizations ? 'disabled' : ''}" 
+          on:click={() => navigateToStep('viz')}
+          on:keydown={(e) => e.key === 'Enter' && navigateToStep('viz')}
+          role="tab"
+          aria-selected={activeStep === 'viz'}
+          aria-disabled={!canViewVisualizations}
+          tabindex={canViewVisualizations ? 0 : -1}
+        >
+          <div class="step-number">2</div>
+          <div class="step-label">Visualizations</div>
+        </button>
+      </div>
+      
+      {#if activeStep === 'jobs'}
+        <div class="step-content">
+          <div class="jobs-table">
+            <Jobs on:selectJob={(e) => selectJob(e.detail.jobId)} />
+          </div>
+        </div>
+      {:else if activeStep === 'viz'}
+        <div class="step-content">
+          <div class="coming-soon">
+            <p>Visualizations for job {selectedJobId} coming soon...</p>
+          </div>
+        </div>
+      {/if}
     </div>
     
     <div class="chat-container">
@@ -180,12 +240,90 @@
     flex: 1;
   }
   
-  .jobs-section {
+  .analyses-section {
     flex: 6;
     padding: 1rem;
     overflow-y: auto;
     border: 1px solid #ddd;
     border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .stepper {
+    display: flex;
+    align-items: center;
+    margin-bottom: 1.5rem;
+  }
+  
+  .step {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+  }
+  
+  .step:hover:not(.disabled) {
+    background-color: #f0f0f0;
+  }
+  
+  .step.active {
+    font-weight: 500;
+  }
+  
+  .step.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  
+  .step-number {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background-color: #ddd;
+    color: #666;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 500;
+    margin-right: 0.5rem;
+  }
+  
+  .step.active .step-number {
+    background-color: #4a90e2;
+    color: white;
+  }
+  
+  .step-connector {
+    flex: 1;
+    height: 2px;
+    background-color: #ddd;
+    margin: 0 0.5rem;
+    max-width: 50px;
+  }
+  
+  .step-content {
+    flex: 1;
+    overflow-y: auto;
+  }
+  
+  .jobs-table {
+    width: 100%;
+  }
+  
+  
+  .coming-soon {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 200px;
+    color: #666;
+    font-style: italic;
+    background-color: #f9f9f9;
+    border-radius: 8px;
+    margin-top: 1rem;
   }
   
   .chat-container {
@@ -218,7 +356,7 @@
     max-height: 100%;
   }
   
-  .jobs-section h2,
+  .analyses-section h2,
   .chat-section h2 {
     margin-top: 0;
     margin-bottom: 1rem;
