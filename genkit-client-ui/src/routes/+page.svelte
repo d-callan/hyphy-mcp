@@ -1,12 +1,13 @@
 <script lang="ts">
   import Chat from '$lib/components/Chat.svelte';
   import SessionSidebar from '$lib/components/SessionSidebar.svelte';
+  import Jobs from '$lib/components/Jobs.svelte';
   import { onMount } from 'svelte';
   import { base } from '$app/paths';
   
   // State
   let activeSessionId: string | null = null;
-  let showSidebar = true;
+  let showSidebar = false; // Collapsed by default
   let sessions: Array<{id: string, created: number, updated: number}> = [];
   let isLoading = true;
   
@@ -90,20 +91,33 @@
     </div>
   </header>
   
-  <main class="chat-layout">
-    {#if showSidebar}
-      <SessionSidebar 
-        activeSessionId={activeSessionId} 
-        on:select={handleSessionSelect}
-        on:new={handleNewSession}
-      />
-    {/if}
+  <main class="main-layout">
+    <div class="jobs-section">
+      <h2>HyPhy Jobs</h2>
+      <Jobs />
+    </div>
     
-    <div class="chat-area">
+    <div class="chat-container">
       <button class="toggle-sidebar" on:click={toggleSidebar}>
         {showSidebar ? '«' : '»'}
       </button>
-      <Chat sessionId={activeSessionId} />
+      
+      <div class="chat-layout">
+        {#if showSidebar}
+          <div class="sidebar-container">
+            <SessionSidebar 
+              activeSessionId={activeSessionId} 
+              on:select={handleSessionSelect}
+              on:new={handleNewSession}
+            />
+          </div>
+        {/if}
+        
+        <div class="chat-section">
+          <h2>Chat</h2>
+          <Chat sessionId={activeSessionId} />
+        </div>
+      </div>
     </div>
   </main>
   
@@ -114,12 +128,13 @@
 
 <style>
   .container {
-    max-width: 1200px;
+    width: 100%;
     margin: 0 auto;
-    padding: 2rem 1rem;
+    padding: 2rem;
     display: flex;
     flex-direction: column;
-    min-height: 100vh;
+    height: 100vh;
+    box-sizing: border-box;
   }
   
   header {
@@ -155,21 +170,60 @@
     flex: 1;
   }
   
-  .chat-layout {
+  .main-layout {
     display: flex;
     height: calc(100vh - 200px);
     min-height: 500px;
+    position: relative;
+    overflow: hidden;
+    gap: 1rem;
+    flex: 1;
+  }
+  
+  .jobs-section {
+    flex: 6;
+    padding: 1rem;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+  }
+  
+  .chat-container {
+    flex: 4;
     position: relative;
     border: 1px solid #ddd;
     border-radius: 8px;
     overflow: hidden;
   }
   
-  .chat-area {
+  .chat-layout {
+    display: flex;
+    height: 100%;
+    width: 100%;
+  }
+  
+  .sidebar-container {
+    width: 250px;
+    border-right: 1px solid #ddd;
+    overflow-y: auto;
+    background-color: #f9f9f9;
+  }
+  
+  .chat-section {
     flex: 1;
-    position: relative;
+    padding: 1rem;
     display: flex;
     flex-direction: column;
+    overflow-y: auto;
+    max-height: 100%;
+  }
+  
+  .jobs-section h2,
+  .chat-section h2 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    font-size: 1.3rem;
+    color: #333;
   }
   
   .toggle-sidebar {

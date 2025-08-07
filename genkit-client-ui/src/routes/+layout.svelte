@@ -15,8 +15,7 @@
         <a href="/">MonkeyBot</a>
       </div>
       <ul class="nav-links">
-        <li><a href="/">Chat</a></li>
-        <li><a href="/jobs">Jobs</a></li>
+        <li><a href="/">Home</a></li>
       </ul>
     </div>
   </nav>

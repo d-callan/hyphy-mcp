@@ -24,6 +24,22 @@
     {
       "role": "assistant",
       "content": "The BUSTED analysis results have been fetched.\n\n**Likelihood Ratio Test (LRT):** 26.059912\n**p-value:** 0.0000010968113\n\nThis indicates a statistically significant evidence of episodic diversifying selection.\n\n**Model Fits:**\n*   **Unconstrained model:**\n    *   Log Likelihood: -12867.441\n    *   AIC-c: 25924.318\n    *   Estimated parameters: 94\n*   **Constrained model:**\n    *   Log Likelihood: -12880.471\n    *   AIC-c: 25948.348\n    *   Estimated parameters: 93\n\n**Rate Distributions (Unconstrained Model):**\n*   **Synonymous site-to-site rates:**\n    *   Rate 0: 0.3826 (Proportion: 0.5936)\n    *   Rate 1: 1.1245 (Proportion: 0.3478)\n    *   Rate 2: 6.5137 (Proportion: 0.0586)\n*   **Test (Non-synonymous/synonymous rate ratio - omega):**\n    *   Omega 0: 0 (Proportion: 0.6159)\n    *   Omega 1: 0.1423 (Proportion: 0.3722)\n    *   Omega 2: 6.9950 (Proportion: 0.0119)\n\nThe results indicate that a significant proportion of sites are evolving under purifying selection (omega < 1), and a small proportion of sites are under diversifying selection (omega > 1)."
+    },
+    {
+      "role": "user",
+      "content": "hi. can you tell me how many sequences and sites were in this dataset"
+    },
+    {
+      "role": "assistant",
+      "content": "I apologize, but I cannot provide the exact number of sequences and sites in the dataset based on the information available from the completed BUSTED analysis. The tools I have access to do not provide this specific metadata after a job has been run."
+    },
+    {
+      "role": "user",
+      "content": "it should be in the results json from fetching the job"
+    },
+    {
+      "role": "assistant",
+      "content": "Based on the results of the BUSTED analysis, the dataset contained:\n\n*   **Number of sites:** 330\n*   **Number of sequences:** 38"
     }
   ]
 }
