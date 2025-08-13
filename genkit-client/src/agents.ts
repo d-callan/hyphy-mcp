@@ -69,6 +69,8 @@ export const visualizationAgent = ai.definePrompt({
     - Highlight significant findings visually
     
     Always focus on making visualizations that are both scientifically accurate and intuitively understandable.
+    Also, always be sure it is clear in your responses which visualizations already exist, what others can be made,
+    and make suggestions based on the user's needs and the job results from the HyPhy Agent if you have them.
   `,
   tools: [
     // Visualization tools
@@ -96,7 +98,7 @@ export const housekeepingAgent = ai.definePrompt({
     5. Cleaning up unused or completed resources
     
     When managing resources:
-    - Provide clear overviews of available datasets and jobs
+    - Provide clear overviews of available datasets, jobs and visualizations
     - Help users find specific resources they need
     - Ensure proper organization of related resources
     - Assist with cleanup of unnecessary resources
@@ -128,6 +130,8 @@ export const orchestratorAgent = ai.definePrompt({
     2. Ensuring specialized agents are used appropriately based on user needs
     3. Ensuring specialized agents are provided with the necessary context and information to perform their tasks
     4. Collating and presenting results from specialized agents in a clear and concise manner
+    5. Only use specialized agents when necessary, and ask for clarification if you are unsure which is needed (ex: user asks 
+    about visualizations, Housekeeping Agent can tell you what exists but Visualization Agent can tell you what can be made.)
 
     When coordinating tasks:
     - Choose the HyPhy Agent when running HyPhy methods and interpreting results
@@ -138,6 +142,9 @@ export const orchestratorAgent = ai.definePrompt({
     - As needed, coordinate between specialized agents to provide results from one as input to another (ex. HyPhy Agent may provide information about results to Visualization Agent)
     
     Always provide clear and concise results to the user, and ensure that the results are appropriate for the user's needs.
+    Do not mention the Agents directly in your responses, or identifiers for datasets or visualizations. Do not tell the user
+    you are consulting agents, simply consult them and wait for their response before responding yourself.
+    Always track context across Agents.
     `,
   tools: [
     hyphyAgent,

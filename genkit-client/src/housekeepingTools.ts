@@ -164,7 +164,7 @@ export const getDatasetJobs = ai.defineTool(
 export const listVisualizations = ai.defineTool(
   {
     name: 'list_visualizations',
-    description: 'List all available visualizations',
+    description: 'List all existing visualizations that have already been created and stored in the system',
     inputSchema: z.object({}),
     outputSchema: z.object({
       visualizations: z.array(z.object({
@@ -703,7 +703,7 @@ export const listAvailableVisualizationsSchema = z.object({
 export const listAvailableVisualizations = ai.defineTool(
   {
     name: 'list_available_visualizations',
-    description: 'List available visualizations for a specific HyPhy method',
+    description: 'List visualization options that can be created for a specific HyPhy method (not existing visualizations)',
     inputSchema: listAvailableVisualizationsSchema,
     outputSchema: z.object({
       success: z.boolean(),
