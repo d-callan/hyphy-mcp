@@ -7,10 +7,7 @@ import { fileManager } from './fileManager';
 import { globalJobStore } from './globalJobStore';
 import { globalDatasetStore, type Dataset } from './datasetStore';
 import { globalVisualizationStore, type Visualization } from './visualizationStore';
-import { housekeepingTools } from './housekeepingTools';
-import { hyphyTools } from './hyphyTools';
-
-const datamonkeyTools = [...housekeepingTools, ...hyphyTools];
+import orchestratorAgent, { hyphyAgent, visualizationAgent, housekeepingAgent } from './agents';
 
 // Simple in-memory cache for chatFlow data
 const chatFlowCache: {
@@ -220,19 +217,28 @@ export const chatFlow = ai.defineFlow(
     const dataContext = datasetContext + jobContext + vizContext;
     
     const prompt = conversationContext 
-      ? `${conversationContext}\n\nUser: ${input.message}${fileContext}${dataContext}\n\nBased on this conversation, available files, datasets, jobs, and visualizations, consider if you need to use any available tools to generate a response. If the user wants to analyze a file, use the appropriate HyPhy method tool with the file path. If they want to work with datasets or visualizations, use the appropriate dataset or visualization tools. Respond in a helpful and informative manner.`
-      : `User says: "${input.message}"${fileContext}${dataContext}\n\nBased on this and available files, datasets, jobs, and visualizations, consider if you need to use any available tools to generate a response. If the user wants to analyze a file, use the appropriate HyPhy method tool with the file path. If they want to work with datasets or visualizations, use the appropriate dataset or visualization tools. Respond in a helpful and informative manner.`;
+      ? `${conversationContext}\n\nUser: ${input.message}${fileContext}${dataContext}\n\n
+      Based on this conversation, available files, datasets, jobs, and visualizations, consider if you need to use any 
+      available tools to generate a response. The Orchestrator Agent will help you with this and has access to 
+      tools from three specialized domains:\n\n1. HyPhy Tools: For running phylogenetic analyses using HyPhy methods 
+      and interpreting results\n2. Visualization Tools: For creating and managing visualizations of HyPhy results\n
+      3. Housekeeping Tools: For managing datasets, jobs, and general organization\n\nRespond in a helpful and
+      informative manner.`      : `User says: "${input.message}"${fileContext}${dataContext}\n\n
+      Based on this and available files, datasets, jobs, and visualizations, consider if you need to use any 
+      available tools to generate a response. The Orchestrator Agent will help you with this and has access to 
+      tools from three specialized domains:\n\n1. HyPhy Tools: For running phylogenetic analyses using HyPhy methods 
+      and interpreting results\n2. Visualization Tools: For creating and managing visualizations of HyPhy results\n
+      3. Housekeeping Tools: For managing datasets, jobs, and general organization\n\nRespond in a helpful and
+      informative manner.`;
     
     // Instead of wrapping the tools (which creates circular references),
     // we'll modify the prompt to instruct the LLM to include the session ID
-    const sessionPrompt = `${prompt}
-
-IMPORTANT: When using any tool that accepts a session parameter, ALWAYS include the session ID: ${sessionId}`;
+    const sessionPrompt = `${prompt}\n\nIMPORTANT: When using any tool that accepts a session parameter, ALWAYS include the session ID: ${sessionId}`;
     
-    // Generate response with the original tools
+    // Generate response using the orchestrator agent
     const llmResponse = await ai.generate({
       prompt: sessionPrompt,
-      tools: datamonkeyTools
+      tools: [orchestratorAgent]
     });
 
     const responseText = llmResponse.text;

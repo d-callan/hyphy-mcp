@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { chatFlow, listSessions, getAllJobs, getJob, addJob, updateJobStatus, deleteJob } from './index';
+import { chatFlow, listSessions, getAllJobs, getJob, addJob, updateJobStatus, deleteJob } from './chatFlow';
 import { logger } from '@genkit-ai/core/logging';
 import fs from 'fs';
 import path from 'path';
