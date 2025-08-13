@@ -1,6 +1,7 @@
 import ai from './ai';
 import * as hyphyTools from './hyphyTools';
 import * as housekeepingTools from './housekeepingTools';
+import * as vegaTools from './vegaTools';
 import { z } from 'genkit';
 
 // HyPhy Agent: Specialized in running HyPhy methods and analyzing results
@@ -79,7 +80,9 @@ export const visualizationAgent = ai.definePrompt({
     housekeepingTools.getJobVisualizationsTool,
     housekeepingTools.getVisualizationDetails,
     housekeepingTools.listAvailableVisualizations,
-    housekeepingTools.deleteVisualizationTool
+    housekeepingTools.deleteVisualizationTool,
+    // Vega-Lite visualization tools
+    vegaTools.makeVegaSpec
   ],
 });
 
