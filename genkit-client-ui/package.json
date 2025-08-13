@@ -31,6 +31,10 @@
 		"vite": "^7.0.4"
 	},
 	"dependencies": {
-		"marked": "^16.1.2"
+		"@veg/hyphy-eye": "^0.1.2",
+		"marked": "^16.1.2",
+		"vega": "^6.1.2",
+                "vega-embed": "^7.0.2"
+
 	}
 }

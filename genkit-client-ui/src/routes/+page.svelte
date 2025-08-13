@@ -2,12 +2,16 @@
   import Chat from '$lib/components/Chat.svelte';
   import SessionSidebar from '$lib/components/SessionSidebar.svelte';
   import Jobs from '$lib/components/Jobs.svelte';
+  import Visualizations from '$lib/components/Visualizations.svelte';
+  import Datasets from '$lib/components/Datasets.svelte';
   import { onMount } from 'svelte';
   import { base } from '$app/paths';
   
   // Stepper state
-  let activeStep = 'jobs';
+  let activeStep = 'data';
+  let selectedDatasetId: string | null = null;
   let selectedJobId: string | null = null;
+  let canRunJobs = false;
   let canViewVisualizations = false;
   
   // State
@@ -82,6 +86,10 @@
   
   // Handle step navigation
   function navigateToStep(stepId: string) {
+    // Only allow navigation to jobs if a dataset is selected
+    if (stepId === 'jobs' && !canRunJobs) {
+      return;
+    }
     // Only allow navigation to visualizations if a job is selected
     if (stepId === 'viz' && !canViewVisualizations) {
       return;
@@ -89,9 +97,21 @@
     activeStep = stepId;
   }
   
+  // Handle dataset selection
+  function selectDataset(event: CustomEvent<{datasetId: string | null}>) {
+    selectedDatasetId = event.detail.datasetId;
+    canRunJobs = !!selectedDatasetId;
+    
+    // Reset job selection when dataset changes
+    if (selectedJobId) {
+      selectedJobId = null;
+      canViewVisualizations = false;
+    }
+  }
+  
   // Handle job selection
-  function selectJob(jobId: string) {
-    selectedJobId = jobId;
+  function selectJob(event: CustomEvent<{jobId: string}>) {
+    selectedJobId = event.detail.jobId;
     canViewVisualizations = true;
   }
   
@@ -117,15 +137,28 @@
       
       <div class="stepper" role="tablist" aria-label="Analysis Steps">
         <button 
-          class="step {activeStep === 'jobs' ? 'active' : ''}" 
+          class="step {activeStep === 'data' ? 'active' : ''}" 
+          on:click={() => navigateToStep('data')}
+          on:keydown={(e) => e.key === 'Enter' && navigateToStep('data')}
+          role="tab"
+          aria-selected={activeStep === 'data'}
+          tabindex="0"
+        >
+          <div class="step-number">1</div>
+          <div class="step-label">Upload Data</div>
+        </button>
+        <div class="step-connector" aria-hidden="true"></div>
+        <button 
+          class="step {activeStep === 'jobs' ? 'active' : ''} {!canRunJobs ? 'disabled' : ''}" 
           on:click={() => navigateToStep('jobs')}
           on:keydown={(e) => e.key === 'Enter' && navigateToStep('jobs')}
           role="tab"
           aria-selected={activeStep === 'jobs'}
-          tabindex="0"
+          aria-disabled={!canRunJobs}
+          tabindex={canRunJobs ? 0 : -1}
         >
-          <div class="step-number">1</div>
-          <div class="step-label">Jobs</div>
+          <div class="step-number">2</div>
+          <div class="step-label">Run Jobs</div>
         </button>
         <div class="step-connector" aria-hidden="true"></div>
         <button 
@@ -137,22 +170,33 @@
           aria-disabled={!canViewVisualizations}
           tabindex={canViewVisualizations ? 0 : -1}
         >
-          <div class="step-number">2</div>
-          <div class="step-label">Visualizations</div>
+          <div class="step-number">3</div>
+          <div class="step-label">Visualize Results</div>
         </button>
       </div>
       
-      {#if activeStep === 'jobs'}
+      {#if activeStep === 'data'}
+        <div class="step-content">
+          <Datasets on:selectDataset={selectDataset} />
+        </div>
+      {:else if activeStep === 'jobs'}
         <div class="step-content">
           <div class="jobs-table">
-            <Jobs on:selectJob={(e) => selectJob(e.detail.jobId)} />
+            <Jobs 
+              on:selectJob={selectJob} 
+              datasetId={selectedDatasetId} 
+            />
           </div>
         </div>
       {:else if activeStep === 'viz'}
         <div class="step-content">
-          <div class="coming-soon">
-            <p>Visualizations for job {selectedJobId} coming soon...</p>
-          </div>
+          {#if selectedJobId}
+            <Visualizations jobId={selectedJobId} />
+          {:else}
+            <div class="coming-soon">
+              <p>Please select a job first to view visualizations</p>
+            </div>
+          {/if}
         </div>
       {/if}
     </div>

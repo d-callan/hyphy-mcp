@@ -8,6 +8,7 @@ export interface JobInfo {
   timestamp: number;
   fileName?: string;
   treeName?: string;
+  datasetId?: string; // ID of the dataset this job is associated with
   params?: Record<string, any>; // UI-friendly parameters with file paths
   payload?: Record<string, any>; // API payload with file handles for API communication
   results?: any;

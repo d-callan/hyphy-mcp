@@ -9,6 +9,8 @@ import multer from 'multer';
 import { fileManager } from './fileManager';
 import { globalJobStore } from './globalJobStore';
 import { FileSessionStore } from './sessionStore';
+import { globalDatasetStore, type Dataset } from './datasetStore';
+import { globalVisualizationStore, type Visualization } from './visualizationStore';
 
 // Load environment variables
 dotenv.config();
@@ -207,6 +209,35 @@ app.get('/api/jobs', async (req, res) => {
   }
 });
 
+// Get jobs for a specific dataset
+app.get('/api/datasets/:datasetId/jobs', async (req, res) => {
+  try {
+    const { datasetId } = req.params;
+    
+    if (!datasetId) {
+      return res.status(400).json({ error: 'Dataset ID is required' });
+    }
+    
+    // Check if dataset exists
+    const dataset = globalDatasetStore.getDataset(datasetId);
+    if (!dataset) {
+      return res.status(404).json({ error: 'Dataset not found' });
+    }
+    
+    // Get all jobs and filter by datasetId
+    const allJobs = globalJobStore.getAllJobs();
+    const datasetJobs = allJobs.filter(job => job.datasetId === datasetId);
+    
+    return res.json({
+      success: true,
+      jobs: datasetJobs
+    });
+  } catch (error) {
+    logger.error(`Error getting jobs for dataset ${req.params.datasetId}:`, error);
+    return res.status(500).json({ error: 'Failed to get dataset jobs' });
+  }
+});
+
 // Get a specific job
 app.get('/api/jobs/:jobId', async (req, res) => {
   try {
@@ -216,7 +247,7 @@ app.get('/api/jobs/:jobId', async (req, res) => {
       return res.status(400).json({ error: 'Job ID is required' });
     }
     
-    const job = await getJob(jobId);
+    const job = globalJobStore.getJob(jobId);
     
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
@@ -302,6 +333,338 @@ app.delete('/api/jobs/:jobId', async (req, res) => {
   }
 });
 
+// Update a job
+app.put('/api/jobs/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const updates = req.body;
+    
+    if (!jobId) {
+      return res.status(400).json({ error: 'Job ID is required' });
+    }
+    
+    // Get the current job
+    const job = globalJobStore.getJob(jobId);
+    
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    
+    // Update the job in the global job store
+    // Note: addJob method handles both adding new jobs and updating existing ones
+    const updatedJob = { ...job, ...updates };
+    const success = globalJobStore.addJob(updatedJob);
+    
+    if (!success) {
+      return res.status(500).json({ error: 'Failed to update job' });
+    }
+    
+    return res.json({
+      success: true,
+      job: updatedJob
+    });
+  } catch (error) {
+    logger.error('Error updating job:', error);
+    return res.status(500).json({ error: 'Failed to update job' });
+  }
+});
+
+// Update job status
+app.put('/api/jobs/:jobId/status', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { status, results } = req.body;
+    
+    if (!jobId) {
+      return res.status(400).json({ error: 'Job ID is required' });
+    }
+    
+    if (!status) {
+      return res.status(400).json({ error: 'Status is required' });
+    }
+    
+    // Get the current job
+    const job = globalJobStore.getJob(jobId);
+    
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    
+    // Update the job status in the global job store
+    const updatedJob = { 
+      ...job, 
+      status,
+      ...(results && { results })
+    };
+    const success = globalJobStore.addJob(updatedJob);
+    
+    if (!success) {
+      return res.status(500).json({ error: 'Failed to update job status' });
+    }
+    
+    return res.json({
+      success: true,
+      job: updatedJob
+    });
+  } catch (error) {
+    logger.error('Error updating job status:', error);
+    return res.status(500).json({ error: 'Failed to update job status' });
+  }
+});
+
+// Get job results
+app.get('/api/jobs/:jobId/results', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    if (!jobId) {
+      return res.status(400).json({ error: 'Job ID is required' });
+    }
+    
+    // Get the job
+    const job = globalJobStore.getJob(jobId);
+    
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    
+    // Return the job results
+    return res.json({
+      success: true,
+      results: job.results || null
+    });
+  } catch (error) {
+    logger.error('Error getting job results:', error);
+    return res.status(500).json({ error: 'Failed to get job results' });
+  }
+});
+
+// Visualization API endpoints
+
+// Get all visualizations
+app.get('/api/visualizations', (req, res) => {
+  try {
+    const visualizations = globalVisualizationStore.getAllVisualizations();
+    return res.json({
+      success: true,
+      visualizations
+    });
+  } catch (error) {
+    logger.error('Error getting visualizations:', error);
+    return res.status(500).json({ error: 'Failed to get visualizations' });
+  }
+});
+
+// Get visualizations for a specific job
+// Endpoint moved to line ~957 to avoid duplication
+
+// Get visualizations for a specific dataset
+app.get('/api/datasets/:datasetId/visualizations', (req, res) => {
+  try {
+    const { datasetId } = req.params;
+    
+    if (!datasetId) {
+      return res.status(400).json({ error: 'Dataset ID is required' });
+    }
+    
+    const visualizations = globalVisualizationStore.getDatasetVisualizations(datasetId);
+    return res.json({
+      success: true,
+      visualizations
+    });
+  } catch (error) {
+    logger.error('Error getting dataset visualizations:', error);
+    return res.status(500).json({ error: 'Failed to get dataset visualizations' });
+  }
+});
+
+// Get a specific visualization
+app.get('/api/visualizations/:vizId', (req, res) => {
+  try {
+    const { vizId } = req.params;
+    
+    if (!vizId) {
+      return res.status(400).json({ error: 'Visualization ID is required' });
+    }
+    
+    const visualization = globalVisualizationStore.getVisualization(vizId);
+    
+    if (!visualization) {
+      return res.status(404).json({ error: 'Visualization not found' });
+    }
+    
+    return res.json({
+      success: true,
+      visualization
+    });
+  } catch (error) {
+    logger.error('Error getting visualization:', error);
+    return res.status(500).json({ error: 'Failed to get visualization' });
+  }
+});
+
+// Add a new visualization
+app.post('/api/visualizations', (req, res) => {
+  try {
+    const visualization = req.body;
+    
+    if (!visualization) {
+      return res.status(400).json({ error: 'Visualization data is required' });
+    }
+    
+    if (!visualization.jobId) {
+      return res.status(400).json({ error: 'Job ID is required' });
+    }
+    
+    if (!visualization.type) {
+      return res.status(400).json({ error: 'Visualization type is required' });
+    }
+    
+    const success = globalVisualizationStore.addVisualization(visualization);
+    
+    if (!success) {
+      return res.status(500).json({ error: 'Failed to add visualization' });
+    }
+    
+    return res.json({
+      success: true,
+      visualization
+    });
+  } catch (error) {
+    logger.error('Error adding visualization:', error);
+    return res.status(500).json({ error: 'Failed to add visualization' });
+  }
+});
+
+// Update a visualization
+app.put('/api/visualizations/:vizId', (req, res) => {
+  try {
+    const { vizId } = req.params;
+    const updates = req.body;
+    
+    if (!vizId) {
+      return res.status(400).json({ error: 'Visualization ID is required' });
+    }
+    
+    const success = globalVisualizationStore.updateVisualization(vizId, updates);
+    
+    if (!success) {
+      return res.status(404).json({ error: 'Visualization not found or could not be updated' });
+    }
+    
+    const visualization = globalVisualizationStore.getVisualization(vizId);
+    
+    return res.json({
+      success: true,
+      visualization
+    });
+  } catch (error) {
+    logger.error('Error updating visualization:', error);
+    return res.status(500).json({ error: 'Failed to update visualization' });
+  }
+});
+
+// Delete a visualization
+app.delete('/api/visualizations/:vizId', (req, res) => {
+  try {
+    const { vizId } = req.params;
+    
+    if (!vizId) {
+      return res.status(400).json({ error: 'Visualization ID is required' });
+    }
+    
+    const success = globalVisualizationStore.deleteVisualization(vizId);
+    
+    if (!success) {
+      return res.status(404).json({ error: 'Visualization not found or could not be deleted' });
+    }
+    
+    return res.json({
+      success: true,
+      message: 'Visualization deleted successfully'
+    });
+  } catch (error) {
+    logger.error('Error deleting visualization:', error);
+    return res.status(500).json({ error: 'Failed to delete visualization' });
+  }
+});
+
+// Delete all visualizations for a job
+app.delete('/api/jobs/:jobId/visualizations', (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    if (!jobId) {
+      return res.status(400).json({ error: 'Job ID is required' });
+    }
+    
+    const success = globalVisualizationStore.deleteJobVisualizations(jobId);
+    
+    return res.json({
+      success,
+      message: success ? 'Job visualizations deleted successfully' : 'Failed to delete job visualizations'
+    });
+  } catch (error) {
+    logger.error('Error deleting job visualizations:', error);
+    return res.status(500).json({ error: 'Failed to delete job visualizations' });
+  }
+});
+
+// Registry API endpoints
+import registryService from './services/registryService';
+
+// Get all available HyPhy methods with their visualizations
+app.get('/api/registry/methods', (req, res) => {
+  try {
+    const methods = registryService.getAllMethods();
+    return res.json({
+      success: true,
+      methods
+    });
+  } catch (error) {
+    logger.error('Error getting registry methods:', error);
+    return res.status(500).json({ error: 'Failed to get registry methods' });
+  }
+});
+
+// Get available visualizations for a specific HyPhy method
+app.get('/api/registry/methods/:method/visualizations', (req, res) => {
+  try {
+    const { method } = req.params;
+    
+    if (!method) {
+      return res.status(400).json({ error: 'Method name is required' });
+    }
+    
+    if (!registryService.methodExists(method)) {
+      return res.status(404).json({ error: `Method '${method}' not found` });
+    }
+    
+    const visualizations = registryService.getMethodVisualizations(method);
+    return res.json({
+      success: true,
+      visualizations
+    });
+  } catch (error) {
+    logger.error('Error getting method visualizations:', error);
+    return res.status(500).json({ error: 'Failed to get method visualizations' });
+  }
+});
+
+// Get all visualization categories
+app.get('/api/registry/categories', (req, res) => {
+  try {
+    const categories = registryService.getCategories();
+    return res.json({
+      success: true,
+      categories
+    });
+  } catch (error) {
+    logger.error('Error getting visualization categories:', error);
+    return res.status(500).json({ error: 'Failed to get visualization categories' });
+  }
+});
+
 // Sessions API endpoints
 
 // Create a session store instance for API access
@@ -381,6 +744,382 @@ app.get('/api/sessions/:sessionId', async (req, res) => {
       success: false, 
       error: 'Failed to get session' 
     });
+  }
+});
+
+// Dataset API endpoints
+
+// Get all datasets
+app.get('/api/datasets', async (req, res) => {
+  try {
+    const datasets = globalDatasetStore.getAllDatasets();
+    
+    return res.json({
+      success: true,
+      datasets
+    });
+  } catch (error) {
+    logger.error('Error getting datasets:', error);
+    return res.status(500).json({ error: 'Failed to get datasets' });
+  }
+});
+
+// Get a specific dataset
+app.get('/api/datasets/:datasetId', async (req, res) => {
+  try {
+    const { datasetId } = req.params;
+    
+    if (!datasetId) {
+      return res.status(400).json({ error: 'Dataset ID is required' });
+    }
+    
+    const dataset = globalDatasetStore.getDataset(datasetId);
+    
+    if (!dataset) {
+      return res.status(404).json({ error: 'Dataset not found' });
+    }
+    
+    return res.json({
+      success: true,
+      dataset
+    });
+  } catch (error) {
+    logger.error('Error getting dataset:', error);
+    return res.status(500).json({ error: 'Failed to get dataset' });
+  }
+});
+
+// Upload a new dataset
+app.post('/api/datasets', upload.fields([
+  { name: 'alignmentFile', maxCount: 1 },
+  { name: 'treeFile', maxCount: 1 }
+]), async (req, res) => {
+  try {
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+    
+    // Check if at least alignment file is uploaded
+    if (!files || !files.alignmentFile) {
+      return res.status(400).json({ error: 'Alignment file is required' });
+    }
+    
+    const alignmentFile = files.alignmentFile[0];
+    const treeFile = files.treeFile ? files.treeFile[0] : undefined;
+    
+    // Create dataset object
+    const dataset: Dataset = {
+      datasetId: `dataset_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      name: req.body.name || alignmentFile.originalname,
+      description: req.body.description || '',
+      timestamp: Date.now(),
+      hasAlignment: true,
+      hasTree: !!treeFile,
+      fileSize: alignmentFile.size,
+      filePath: alignmentFile.path,
+      treePath: treeFile?.path,
+      metadata: {
+        originalAlignmentName: alignmentFile.originalname,
+        originalTreeName: treeFile?.originalname
+      }
+    };
+    
+    // Add dataset to store
+    const success = globalDatasetStore.addDataset(dataset);
+    
+    if (!success) {
+      return res.status(500).json({ error: 'Failed to add dataset' });
+    }
+    
+    return res.json({
+      success: true,
+      dataset
+    });
+  } catch (error) {
+    logger.error('Error uploading dataset:', error);
+    return res.status(500).json({ error: 'Failed to upload dataset' });
+  }
+});
+
+// Update a dataset
+app.put('/api/datasets/:datasetId', async (req, res) => {
+  try {
+    const { datasetId } = req.params;
+    
+    if (!datasetId) {
+      return res.status(400).json({ error: 'Dataset ID is required' });
+    }
+    
+    const updates = req.body;
+    
+    // Don't allow updating certain fields
+    delete updates.datasetId;
+    delete updates.filePath;
+    delete updates.treePath;
+    
+    const success = globalDatasetStore.updateDataset(datasetId, updates);
+    
+    if (!success) {
+      return res.status(404).json({ error: 'Dataset not found' });
+    }
+    
+    return res.json({
+      success: true,
+      message: `Dataset ${datasetId} updated successfully`
+    });
+  } catch (error) {
+    logger.error('Error updating dataset:', error);
+    return res.status(500).json({ error: 'Failed to update dataset' });
+  }
+});
+
+// Delete a dataset
+app.delete('/api/datasets/:datasetId', async (req, res) => {
+  try {
+    const { datasetId } = req.params;
+    
+    if (!datasetId) {
+      return res.status(400).json({ error: 'Dataset ID is required' });
+    }
+    
+    const success = globalDatasetStore.deleteDataset(datasetId);
+    
+    if (!success) {
+      return res.status(404).json({ error: 'Dataset not found' });
+    }
+    
+    return res.json({
+      success: true,
+      message: `Dataset ${datasetId} deleted successfully`
+    });
+  } catch (error) {
+    logger.error('Error deleting dataset:', error);
+    return res.status(500).json({ error: 'Failed to delete dataset' });
+  }
+});
+
+// Get jobs for a dataset
+app.get('/api/datasets/:datasetId/jobs', async (req, res) => {
+  try {
+    const { datasetId } = req.params;
+    
+    if (!datasetId) {
+      return res.status(400).json({ error: 'Dataset ID is required' });
+    }
+    
+    // Get all jobs and filter by datasetId
+    const allJobs = await getAllJobs();
+    const datasetJobs = allJobs.filter(job => job.datasetId === datasetId);
+    
+    return res.json({
+      success: true,
+      jobs: datasetJobs
+    });
+  } catch (error) {
+    logger.error('Error getting dataset jobs:', error);
+    return res.status(500).json({ error: 'Failed to get dataset jobs' });
+  }
+});
+
+// Visualization API endpoints
+
+// Get all visualizations
+app.get('/api/visualizations', async (req, res) => {
+  try {
+    const visualizations = globalVisualizationStore.getAllVisualizations();
+    
+    return res.json({
+      success: true,
+      visualizations
+    });
+  } catch (error) {
+    logger.error('Error getting visualizations:', error);
+    return res.status(500).json({ error: 'Failed to get visualizations' });
+  }
+});
+
+// Get visualizations for a job
+app.get('/api/jobs/:jobId/visualizations', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    if (!jobId) {
+      return res.status(400).json({ error: 'Job ID is required' });
+    }
+    
+    const visualizations = globalVisualizationStore.getJobVisualizations(jobId);
+    
+    return res.json({
+      success: true,
+      visualizations
+    });
+  } catch (error) {
+    logger.error('Error getting job visualizations:', error);
+    return res.status(500).json({ error: 'Failed to get job visualizations' });
+  }
+});
+
+// Get visualizations for a dataset
+app.get('/api/datasets/:datasetId/visualizations', async (req, res) => {
+  try {
+    const { datasetId } = req.params;
+    
+    if (!datasetId) {
+      return res.status(400).json({ error: 'Dataset ID is required' });
+    }
+    
+    const visualizations = globalVisualizationStore.getDatasetVisualizations(datasetId);
+    
+    return res.json({
+      success: true,
+      visualizations
+    });
+  } catch (error) {
+    logger.error('Error getting dataset visualizations:', error);
+    return res.status(500).json({ error: 'Failed to get dataset visualizations' });
+  }
+});
+
+// Get a specific visualization
+app.get('/api/visualizations/:vizId', async (req, res) => {
+  try {
+    const { vizId } = req.params;
+    
+    if (!vizId) {
+      return res.status(400).json({ error: 'Visualization ID is required' });
+    }
+    
+    const visualization = globalVisualizationStore.getVisualization(vizId);
+    
+    if (!visualization) {
+      return res.status(404).json({ error: 'Visualization not found' });
+    }
+    
+    return res.json({
+      success: true,
+      visualization
+    });
+  } catch (error) {
+    logger.error('Error getting visualization:', error);
+    return res.status(500).json({ error: 'Failed to get visualization' });
+  }
+});
+
+// Create a new visualization
+app.post('/api/visualizations', async (req, res) => {
+  try {
+    const vizData = req.body;
+    
+    // Validate required fields
+    if (!vizData.jobId || !vizData.type || !vizData.title || !vizData.data) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: jobId, type, title, and data are required' 
+      });
+    }
+    
+    // Create visualization object
+    const visualization: Visualization = {
+      vizId: `viz_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      jobId: vizData.jobId,
+      datasetId: vizData.datasetId,
+      type: vizData.type,
+      title: vizData.title,
+      description: vizData.description || '',
+      timestamp: Date.now(),
+      data: vizData.data,
+      config: vizData.config || {},
+      metadata: vizData.metadata || {}
+    };
+    
+    // Add visualization to store
+    const success = globalVisualizationStore.addVisualization(visualization);
+    
+    if (!success) {
+      return res.status(500).json({ error: 'Failed to add visualization' });
+    }
+    
+    return res.json({
+      success: true,
+      visualization
+    });
+  } catch (error) {
+    logger.error('Error creating visualization:', error);
+    return res.status(500).json({ error: 'Failed to create visualization' });
+  }
+});
+
+// Update a visualization
+app.put('/api/visualizations/:vizId', async (req, res) => {
+  try {
+    const { vizId } = req.params;
+    
+    if (!vizId) {
+      return res.status(400).json({ error: 'Visualization ID is required' });
+    }
+    
+    const updates = req.body;
+    
+    // Don't allow updating certain fields
+    delete updates.vizId;
+    delete updates.jobId;
+    
+    const success = globalVisualizationStore.updateVisualization(vizId, updates);
+    
+    if (!success) {
+      return res.status(404).json({ error: 'Visualization not found' });
+    }
+    
+    return res.json({
+      success: true,
+      message: `Visualization ${vizId} updated successfully`
+    });
+  } catch (error) {
+    logger.error('Error updating visualization:', error);
+    return res.status(500).json({ error: 'Failed to update visualization' });
+  }
+});
+
+// Delete a visualization
+app.delete('/api/visualizations/:vizId', async (req, res) => {
+  try {
+    const { vizId } = req.params;
+    
+    if (!vizId) {
+      return res.status(400).json({ error: 'Visualization ID is required' });
+    }
+    
+    const success = globalVisualizationStore.deleteVisualization(vizId);
+    
+    if (!success) {
+      return res.status(404).json({ error: 'Visualization not found' });
+    }
+    
+    return res.json({
+      success: true,
+      message: `Visualization ${vizId} deleted successfully`
+    });
+  } catch (error) {
+    logger.error('Error deleting visualization:', error);
+    return res.status(500).json({ error: 'Failed to delete visualization' });
+  }
+});
+
+// Delete all visualizations for a job
+app.delete('/api/jobs/:jobId/visualizations', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    if (!jobId) {
+      return res.status(400).json({ error: 'Job ID is required' });
+    }
+    
+    const success = globalVisualizationStore.deleteJobVisualizations(jobId);
+    
+    return res.json({
+      success: true,
+      message: `Visualizations for job ${jobId} deleted successfully`
+    });
+  } catch (error) {
+    logger.error('Error deleting job visualizations:', error);
+    return res.status(500).json({ error: 'Failed to delete job visualizations' });
   }
 });
 

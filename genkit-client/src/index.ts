@@ -8,7 +8,19 @@ import path from 'path';
 import { FileSessionStore } from './sessionStore';
 import { fileManager } from './fileManager';
 import { globalJobStore } from './globalJobStore';
+import { globalDatasetStore, type Dataset } from './datasetStore';
+import { globalVisualizationStore, type Visualization } from './visualizationStore';
 // We'll import the job tracker after ai is defined to avoid circular dependencies
+
+// Simple in-memory cache for chatFlow data
+const chatFlowCache: {
+  [key: string]: {
+    timestamp: number;
+    datasets: any[];
+    jobs: any[];
+    visualizations: any[];
+  };
+} = {};
 
 // Initialize session store for chat message history
 const sessionStore = new FileSessionStore('./data/sessions');
@@ -175,10 +187,52 @@ const datamonkeyConfig = {
 // Helper function to get full API URL
 const getApiUrl = () => `${datamonkeyConfig.apiUrl}:${datamonkeyConfig.apiPort}/api/v1`;
 
+/**
+ * Helper function to resolve a potential dataset ID to a file path
+ * If the input is a dataset ID, returns the file path from the dataset store
+ * If the input is a file path, returns it as is
+ * @param filePathOrDatasetId The file path or dataset ID to resolve
+ * @returns The resolved file path or the original input if not found
+ */
+function resolveDatasetPath(filePathOrDatasetId: string): string {
+  // If the input looks like a dataset ID, resolve it to a file path
+  if (filePathOrDatasetId.startsWith('dataset_')) {
+    const dataset = globalDatasetStore.getDataset(filePathOrDatasetId);
+    if (dataset) {
+      // Return the full file path from the dataset
+      if (dataset.filePath) {
+        logger.info(`Resolved dataset ID ${filePathOrDatasetId} to file path ${dataset.filePath}`);
+        return dataset.filePath;
+      } else if (dataset.treePath) {
+        logger.info(`Resolved dataset ID ${filePathOrDatasetId} to tree path ${dataset.treePath}`);
+        return dataset.treePath;
+      }
+    }
+  }
+  // If not a dataset ID or dataset not found, return the input as is
+  return filePathOrDatasetId;
+}
+
+// Helper function to extract dataset ID from file paths
+function extractDatasetId(alignmentFile?: string, treeFile?: string): string | undefined {
+  // Check if alignment file is a dataset ID
+  if (alignmentFile && alignmentFile.startsWith('dataset_')) {
+    return alignmentFile;
+  }
+  // Check if tree file is a dataset ID
+  if (treeFile && treeFile.startsWith('dataset_')) {
+    return treeFile;
+  }
+  // No dataset ID found
+  return undefined;
+}
+
 // Define schemas for common inputs
 const FilePathSchema = z.string().describe('Path to a file');
 const OptionalFilePathSchema = z.string().optional().describe('Optional path to a file');
 const DatasetIdSchema = z.string().describe('Datamonkey dataset ID');
+const JobIdSchema = z.string().describe('Job ID');
+const VisualizationIdSchema = z.string().describe('Visualization ID');
 
 // Helper function to check if a dataset exists on the Datamonkey API
 async function checkDatasetExistsImpl(datasetId: string): Promise<boolean> {
@@ -222,7 +276,28 @@ async function checkDatasetExistsImpl(datasetId: string): Promise<boolean> {
 
 // Helper function to upload a file to Datamonkey API
 async function uploadFileToDatamonkeyImpl(filePath: string, skipExistenceCheck: boolean = false) {
+  // Resolve dataset ID to file path if needed
+  const resolvedPath = resolveDatasetPath(filePath);
+  if (resolvedPath !== filePath) {
+    logger.info(`Resolved dataset path: ${filePath} -> ${resolvedPath}`);
+    filePath = resolvedPath;
+  }
   try {
+    // Log the current working directory and absolute file path for debugging
+    logger.info(`Current working directory: ${process.cwd()}`);
+    logger.info(`Attempting to access file at: ${filePath}`);
+    logger.info(`Absolute path: ${path.resolve(filePath)}`);
+    
+    // List files in the directory to help debug
+    try {
+      const dir = path.dirname(filePath);
+      logger.info(`Listing files in directory: ${dir}`);
+      const files = fs.readdirSync(dir);
+      logger.info(`Files in directory: ${JSON.stringify(files)}`);
+    } catch (dirErr) {
+      logger.error(`Error listing directory: ${dirErr instanceof Error ? dirErr.message : String(dirErr)}`);
+    }
+    
     // Check if file exists locally
     if (!fs.existsSync(filePath)) {
       logger.error(`File not found: ${filePath}`);
@@ -422,8 +497,11 @@ export const startOrMonitorBustedJob = ai.defineTool(
   },
   async (input) => {
     try {
+      // Resolve dataset ID to file path if needed
+      const resolvedAlignmentPath = resolveDatasetPath(input.alignment_file);
+      
       // Upload alignment file
-      const alignmentUpload = await uploadFileToDatamonkeyImpl(input.alignment_file);
+      const alignmentUpload = await uploadFileToDatamonkeyImpl(resolvedAlignmentPath);
       if (alignmentUpload.status === 'error') {
         return { status: 'error', error: alignmentUpload.error };
       }
@@ -431,7 +509,10 @@ export const startOrMonitorBustedJob = ai.defineTool(
       // Upload tree file if provided
       let treeUpload = null;
       if (input.tree_file) {
-        treeUpload = await uploadFileToDatamonkeyImpl(input.tree_file);
+        // Resolve dataset ID to file path if needed
+        const resolvedTreePath = resolveDatasetPath(input.tree_file);
+        
+        treeUpload = await uploadFileToDatamonkeyImpl(resolvedTreePath);
         if (treeUpload.status === 'error') {
           return { status: 'error', error: treeUpload.error };
         }
@@ -461,12 +542,16 @@ export const startOrMonitorBustedJob = ai.defineTool(
       const jobStatus = jobResult.completed ? 'completed' : 'pending';
       
       // Store job in global store
+      // Extract dataset ID from alignment or tree file
+      const datasetId = extractDatasetId(input.alignment_file, input.tree_file);
+      
       const jobInfo = {
         jobId: jobId,
         method: 'busted',
         status: jobStatus,
         timestamp: Date.now(),
         fileName: input.alignment_file,
+        datasetId, // Add dataset ID to job info
         // UI-friendly parameters with file paths (for display)
         params: {
           alignment: input.alignment_file,
@@ -671,9 +756,12 @@ export const startOrMonitorFelJob = ai.defineTool(
         logger.info(`Tree file provided: ${input.tree_file}`);
       }
       
+      // Resolve dataset ID to file path if needed
+      const resolvedAlignmentPath = resolveDatasetPath(input.alignment_file);
+      
       // Upload alignment file
-      logger.info(`Uploading alignment file: ${input.alignment_file}`);
-      const alignmentUpload = await uploadFileToDatamonkeyImpl(input.alignment_file);
+      logger.info(`Uploading alignment file: ${resolvedAlignmentPath}`);
+      const alignmentUpload = await uploadFileToDatamonkeyImpl(resolvedAlignmentPath);
       logger.info(`Alignment upload result: ${JSON.stringify(alignmentUpload)}`);
       
       if (alignmentUpload.status === 'error') {
@@ -687,8 +775,11 @@ export const startOrMonitorFelJob = ai.defineTool(
       // Upload tree file if provided
       let treeUpload = null;
       if (input.tree_file) {
-        logger.info(`Uploading tree file: ${input.tree_file}`);
-        treeUpload = await uploadFileToDatamonkeyImpl(input.tree_file);
+        // Resolve dataset ID to file path if needed
+        const resolvedTreePath = resolveDatasetPath(input.tree_file);
+        
+        logger.info(`Uploading tree file: ${resolvedTreePath}`);
+        treeUpload = await uploadFileToDatamonkeyImpl(resolvedTreePath);
         logger.info(`Tree upload result: ${JSON.stringify(treeUpload)}`);
         
         if (treeUpload.status === 'error') {
@@ -728,6 +819,9 @@ export const startOrMonitorFelJob = ai.defineTool(
       // Determine job status
       const jobStatus = jobResult.completed ? 'completed' : 'pending';
       
+      // Extract dataset ID from alignment or tree file
+      const datasetId = extractDatasetId(input.alignment_file, input.tree_file);
+      
       // Store job in global job store for app-wide tracking
       globalJobStore.addJob({
         jobId: jobResult.jobId,
@@ -736,6 +830,7 @@ export const startOrMonitorFelJob = ai.defineTool(
         timestamp: Date.now(),
         fileName: input.alignment_file,
         treeName: input.tree_file,
+        datasetId, // Add dataset ID to job info
         // API payload with file handles (for API communication)
         payload: payload,
         // UI-friendly parameters with file paths (for display)
@@ -1543,6 +1638,9 @@ export const startOrMonitorFadeJob = ai.defineTool(
       // Determine job status for session tracking
       const jobStatus = jobResult.completed ? 'completed' : 'pending';
       
+      // Extract dataset ID from alignment or tree file
+      const datasetId = extractDatasetId(input.alignment_file, input.tree_file);
+      
       // Store job in global job store for app-wide tracking
       globalJobStore.addJob({
         jobId: jobId,
@@ -1551,6 +1649,7 @@ export const startOrMonitorFadeJob = ai.defineTool(
         timestamp: Date.now(),
         fileName: input.alignment_file,
         treeName: input.tree_file,
+        datasetId, // Add dataset ID to job info
         // API payload with file handles (for API communication)
         payload: payload,
         // UI-friendly parameters with file paths (for display)
@@ -2314,6 +2413,9 @@ export const startOrMonitorSlacJob = ai.defineTool(
       // Determine job status for session tracking
       const jobStatus = jobResult.completed ? 'completed' : 'pending';
       
+      // Extract dataset ID from alignment or tree file
+      const datasetId = extractDatasetId(input.alignment_file, input.tree_file);
+      
       // Store job in global job store for app-wide tracking
       globalJobStore.addJob({
         jobId: jobId,
@@ -2322,6 +2424,7 @@ export const startOrMonitorSlacJob = ai.defineTool(
         timestamp: Date.now(),
         fileName: input.alignment_file,
         treeName: input.tree_file,
+        datasetId, // Add dataset ID to job info
         // API payload with file handles (for API communication)
         payload: payload,
         // UI-friendly parameters with file paths (for display)
@@ -2476,7 +2579,7 @@ export const startOrMonitorSlatkinJob = ai.defineTool(
           genetic_code: input.genetic_code || 'Universal',
         }
       };
-    } catch (error) {
+    } catch (error: any) {
       return {
         status: 'error',
         error: error instanceof Error ? error.message : String(error)
@@ -2485,30 +2588,951 @@ export const startOrMonitorSlatkinJob = ai.defineTool(
   }
 );
 
+export const listJobs = ai.defineTool(
+  {
+    name: 'list_jobs',
+    description: 'List all available jobs',
+    inputSchema: z.object({}),
+    outputSchema: z.object({
+      jobs: z.array(z.object({
+        jobId: z.string(),
+        method: z.string(),
+        status: z.string(),
+        timestamp: z.number(),
+        datasetId: z.string().optional(),
+      })),
+    }),
+  },
+  async () => {
+    try {
+      const jobs = globalJobStore.getAllJobs();
+      return { jobs };
+    } catch (error) {
+      logger.error('Error listing jobs:', error);
+      return { jobs: [] };
+    }
+  }
+);
+
+export const getJobResults = ai.defineTool(
+  {
+    name: 'get_job_results',
+    description: 'Get the results of a completed job',
+    inputSchema: z.object({
+      job_id: JobIdSchema,
+    }),
+    outputSchema: z.object({
+      results: z.any().optional(),
+      error: z.string().optional(),
+    }),
+  },
+  async (input) => {
+    try {
+      const job = globalJobStore.getJob(input.job_id);
+      if (!job) {
+        return { error: `Job ${input.job_id} not found` };
+      }
+      if (job.status !== 'completed') {
+        return { error: `Job ${input.job_id} is not completed yet` };
+      }
+      return { results: job.results || {} };
+    } catch (error) {
+      logger.error(`Error getting job results ${input.job_id}:`, error);
+      return { error: `Failed to get job results: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+);
+
+// Dataset and visualization tools
+export const listDatasets = ai.defineTool(
+  {
+    name: 'list_datasets',
+    description: 'List all available datasets',
+    inputSchema: z.object({}),
+    outputSchema: z.object({
+      datasets: z.array(z.object({
+        datasetId: z.string(),
+        name: z.string(),
+        description: z.string().optional(),
+        timestamp: z.number(),
+        hasAlignment: z.boolean(),
+        hasTree: z.boolean(),
+        fileSize: z.number().optional(),
+      })),
+    }),
+  },
+  async () => {
+    try {
+      const datasets = globalDatasetStore.getAllDatasets();
+      return { datasets };
+    } catch (error) {
+      logger.error('Error listing datasets:', error);
+      return { datasets: [] };
+    }
+  }
+);
+
+export const getDatasetDetails = ai.defineTool(
+  {
+    name: 'get_dataset_details',
+    description: 'Get detailed information about a specific dataset',
+    inputSchema: z.object({
+      dataset_id: DatasetIdSchema,
+    }),
+    outputSchema: z.object({
+      dataset: z.object({
+        datasetId: z.string(),
+        name: z.string(),
+        description: z.string().optional(),
+        timestamp: z.number(),
+        hasAlignment: z.boolean(),
+        hasTree: z.boolean(),
+        fileSize: z.number().optional(),
+        sequenceCount: z.number().optional(),
+        filePath: z.string(),
+        treePath: z.string().optional(),
+      }).optional(),
+      error: z.string().optional(),
+    }),
+  },
+  async (input) => {
+    try {
+      const dataset = globalDatasetStore.getDataset(input.dataset_id);
+      if (!dataset) {
+        return { error: `Dataset ${input.dataset_id} not found` };
+      }
+      return { dataset };
+    } catch (error) {
+      logger.error(`Error getting dataset ${input.dataset_id}:`, error);
+      return { error: `Failed to get dataset: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+);
+
+export const getDatasetJobs = ai.defineTool(
+  {
+    name: 'get_dataset_jobs',
+    description: 'Get all jobs associated with a specific dataset',
+    inputSchema: z.object({
+      dataset_id: DatasetIdSchema,
+    }),
+    outputSchema: z.object({
+      jobs: z.array(z.object({
+        jobId: z.string(),
+        method: z.string(),
+        status: z.string(),
+        timestamp: z.number(),
+      })),
+      error: z.string().optional(),
+    }),
+  },
+  async (input) => {
+    try {
+      const allJobs = globalJobStore.getAllJobs();
+      const datasetJobs = allJobs.filter(job => job.datasetId === input.dataset_id);
+      return { jobs: datasetJobs };
+    } catch (error) {
+      logger.error(`Error getting jobs for dataset ${input.dataset_id}:`, error);
+      return { 
+        jobs: [],
+        error: `Failed to get dataset jobs: ${error instanceof Error ? error.message : String(error)}` 
+      };
+    }
+  }
+);
+
+export const listVisualizations = ai.defineTool(
+  {
+    name: 'list_visualizations',
+    description: 'List all available visualizations',
+    inputSchema: z.object({}),
+    outputSchema: z.object({
+      visualizations: z.array(z.object({
+        vizId: z.string(),
+        jobId: z.string(),
+        datasetId: z.string().optional(),
+        type: z.string(),
+        title: z.string(),
+        timestamp: z.number(),
+      })),
+    }),
+  },
+  async () => {
+    try {
+      const visualizations = globalVisualizationStore.getAllVisualizations();
+      return { visualizations };
+    } catch (error) {
+      logger.error('Error listing visualizations:', error);
+      return { visualizations: [] };
+    }
+  }
+);
+
+export const getJobVisualizationsTool = ai.defineTool(
+  {
+    name: 'get_job_visualizations',
+    description: 'Get all visualizations associated with a specific job',
+    inputSchema: z.object({
+      job_id: JobIdSchema,
+    }),
+    outputSchema: z.object({
+      visualizations: z.array(z.object({
+        vizId: z.string(),
+        jobId: z.string(),
+        datasetId: z.string().optional(),
+        type: z.string(),
+        title: z.string(),
+        timestamp: z.number(),
+      })),
+      error: z.string().optional(),
+    }),
+  },
+  async (input) => {
+    try {
+      const visualizations = globalVisualizationStore.getJobVisualizations(input.job_id);
+      return { visualizations };
+    } catch (error) {
+      logger.error(`Error getting visualizations for job ${input.job_id}:`, error);
+      return { 
+        visualizations: [],
+        error: `Failed to get job visualizations: ${error instanceof Error ? error.message : String(error)}` 
+      };
+    }
+  }
+);
+
+// Registry service is already imported at the bottom of the file
+
+export const getVisualizationDetails = ai.defineTool(
+  {
+    name: 'get_visualization_details',
+    description: 'Get detailed information about a specific visualization',
+    inputSchema: z.object({
+      viz_id: VisualizationIdSchema,
+    }),
+    outputSchema: z.object({
+      visualization: z.object({
+        vizId: z.string(),
+        jobId: z.string(),
+        datasetId: z.string().optional(),
+        type: z.string(),
+        title: z.string(),
+        description: z.string().optional(),
+        component: z.string().optional(),
+        timestamp: z.number(),
+        data: z.any(),
+        config: z.record(z.string(), z.any()).optional(),
+        metadata: z.record(z.string(), z.any()).optional(),
+      }).optional(),
+      error: z.string().optional(),
+    }),
+  },
+  async (input) => {
+    try {
+      const visualization = globalVisualizationStore.getVisualization(input.viz_id);
+      if (!visualization) {
+        return { error: `Visualization ${input.viz_id} not found` };
+      }
+      
+      // Enrich visualization with registry metadata
+      if (visualization.type) {
+        try {
+          logger.info(`Attempting to enrich visualization ${input.viz_id} of type ${visualization.type}`);
+          
+          // Get the job associated with this visualization to determine the method
+          const job = visualization.jobId ? globalJobStore.getJob(visualization.jobId) : null;
+          const jobMethod = job?.method;
+          
+          logger.info(`Visualization is associated with job ${visualization.jobId}, method: ${jobMethod || 'unknown'}`);
+          
+          let foundRegistryViz = null;
+          
+          // First priority: If we have a job method, look for a visualization with matching name in that method
+          if (jobMethod && registryService.methodExists(jobMethod)) {
+            logger.info(`Looking for visualization with name matching "${visualization.type}" in method ${jobMethod}`);
+            const methodVisualizations = registryService.getMethodVisualizations(jobMethod);
+            
+            // Try to find a visualization with a matching name
+            const nameMatchViz = methodVisualizations.find(v => 
+              v.name === visualization.type || 
+              v.name.toLowerCase() === visualization.type.toLowerCase()
+            );
+            
+            if (nameMatchViz) {
+              logger.info(`Found visualization with matching name in method ${jobMethod}: ${nameMatchViz.name} (${nameMatchViz.component})`);
+              foundRegistryViz = nameMatchViz;
+            } else {
+              logger.info(`No visualization with name "${visualization.type}" found in method ${jobMethod}`);
+            }
+          }
+          
+          // Second check: Is the visualization type itself a method?
+          if (!foundRegistryViz && registryService.methodExists(visualization.type)) {
+            logger.info(`Found method match for ${visualization.type} in registry`);
+            // Get visualizations for this method
+            const methodVisualizations = registryService.getMethodVisualizations(visualization.type);
+            logger.info(`Method ${visualization.type} has ${methodVisualizations.length} visualizations in registry`);
+            
+            // Find a matching visualization by component if available, otherwise use the first one
+            foundRegistryViz = methodVisualizations.find(v => 
+              (visualization.metadata?.component && v.component === visualization.metadata.component) || 
+              v.component === 'TileTable'
+            ) || methodVisualizations[0];
+            
+            if (foundRegistryViz) {
+              logger.info(`Found visualization in method ${visualization.type}: ${foundRegistryViz.name} (${foundRegistryViz.component})`);
+            }
+          }
+          
+          // Third check: Is the visualization type a component name in any method?
+          if (!foundRegistryViz) {
+            logger.info(`${visualization.type} not found as a method, searching as component across all methods`);
+            
+            // Get all methods from registry
+            const allMethods = await registryService.getAllMethods();
+            logger.info(`Searching across ${Object.keys(allMethods).length} methods in registry`);
+            
+            // Search for component match across all methods
+            for (const methodName of Object.keys(allMethods)) {
+              const methodVisualizations = registryService.getMethodVisualizations(methodName);
+              
+              // Look for a visualization with matching component name
+              const matchingViz = methodVisualizations.find(v => 
+                v.component === visualization.type || 
+                v.component.toLowerCase() === visualization.type.toLowerCase()
+              );
+              
+              if (matchingViz) {
+                logger.info(`Found component match for ${visualization.type} in method ${methodName}: ${matchingViz.name}`);
+                foundRegistryViz = matchingViz;
+                break;
+              }
+            }
+            
+            // Fourth check: Search for visualization by name across all methods
+            if (!foundRegistryViz) {
+              logger.info(`Searching for visualization with name "${visualization.type}" across all methods`);
+              
+              for (const methodName of Object.keys(allMethods)) {
+                const methodVisualizations = registryService.getMethodVisualizations(methodName);
+                
+                // Look for a visualization with matching name
+                const nameMatchViz = methodVisualizations.find(v => 
+                  v.name === visualization.type || 
+                  v.name.toLowerCase() === visualization.type.toLowerCase()
+                );
+                
+                if (nameMatchViz) {
+                  logger.info(`Found name match for "${visualization.type}" in method ${methodName}: ${nameMatchViz.name} (${nameMatchViz.component})`);
+                  foundRegistryViz = nameMatchViz;
+                  break;
+                }
+              }
+              
+              if (!foundRegistryViz) {
+                logger.info(`No visualization with name "${visualization.type}" found across all methods`);
+              }
+            }
+          }
+          
+          // Apply registry metadata if found
+          if (foundRegistryViz) {
+            // Enrich with registry metadata
+            if (!visualization.description && foundRegistryViz.description) {
+              visualization.description = foundRegistryViz.description;
+              logger.info(`Set description to: ${foundRegistryViz.description}`);
+            }
+            
+            if (!visualization.component && foundRegistryViz.component) {
+              visualization.component = foundRegistryViz.component;
+              logger.info(`Set component to: ${foundRegistryViz.component}`);
+            }
+            
+            // Store component in metadata if not already there
+            if (foundRegistryViz.component && (!visualization.metadata || !visualization.metadata.component)) {
+              visualization.metadata = visualization.metadata || {};
+              visualization.metadata.component = foundRegistryViz.component;
+              logger.info(`Set metadata.component to: ${foundRegistryViz.component}`);
+            }
+            
+            logger.info(`Successfully enriched visualization ${input.viz_id} with registry metadata`);
+          } else {
+            // If no match found, set reasonable defaults
+            if (!visualization.component) {
+              if (visualization.type === 'Phylotree') {
+                visualization.component = 'Phylotree';
+                visualization.metadata = visualization.metadata || {};
+                visualization.metadata.component = 'Phylotree';
+                if (!visualization.description) {
+                  visualization.description = 'Phylogenetic tree visualization';
+                }
+                logger.info(`Applied Phylotree-specific defaults for visualization ${input.viz_id}`);
+              } else {
+                visualization.component = 'TileTable';
+                visualization.metadata = visualization.metadata || {};
+                visualization.metadata.component = 'TileTable';
+                logger.info(`Applied default component 'TileTable' for visualization ${input.viz_id}`);
+              }
+            }
+          }
+        } catch (regError) {
+          // Log but don't fail if registry enrichment fails
+          logger.error(`Error enriching visualization with registry data: ${regError instanceof Error ? regError.message : String(regError)}`);
+          logger.error(`Stack trace: ${regError instanceof Error ? regError.stack : 'No stack trace'}`);
+          
+          // Set fallback values
+          if (!visualization.component) {
+            visualization.component = visualization.type === 'Phylotree' ? 'Phylotree' : 'TileTable';
+            visualization.metadata = visualization.metadata || {};
+            visualization.metadata.component = visualization.component;
+            logger.info(`Applied fallback component ${visualization.component} due to registry error`);
+          }
+        }
+      }
+      
+      return { visualization };
+    } catch (error) {
+      logger.error(`Error getting visualization ${input.viz_id}:`, error);
+      return { error: `Failed to get visualization: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+);
+
+export const requestVisualization = ai.defineTool(
+  {
+    name: 'request_visualization',
+    description: 'Request a new visualization for a specific job. This will add the visualization to the global visualization store.',
+    inputSchema: z.object({
+      job_id: JobIdSchema.describe('ID of the job to create visualization for'),
+      dataset_id: DatasetIdSchema.optional().describe('Optional dataset ID associated with the visualization'),
+      type: z.string().describe('Type of visualization to create (e.g., "fel", "busted", "slac", etc.)'),
+      title: z.string().describe('Title for the visualization'),
+      description: z.string().optional().describe('Optional description for the visualization'),
+      data: z.any().optional().describe('Optional data for the visualization. If not provided, will be populated from job results'),
+      config: z.record(z.string(), z.any()).optional().describe('Optional configuration for the visualization'),
+    }),
+    outputSchema: z.object({
+      success: z.boolean(),
+      visualization: z.object({
+        vizId: z.string(),
+        jobId: z.string(),
+        datasetId: z.string().optional(),
+        type: z.string(),
+        title: z.string(),
+        timestamp: z.number(),
+      }).optional(),
+      error: z.string().optional(),
+    }),
+  },
+  async (input) => {
+    try {
+      // Check if the job exists
+      const job = globalJobStore.getJob(input.job_id);
+      if (!job) {
+        return { 
+          success: false, 
+          error: `Job ${input.job_id} not found` 
+        };
+      }
+      
+      // If no data provided, try to get it from job results
+      let vizData = input.data;
+      if (!vizData && job.results) {
+        vizData = job.results;
+      }
+      
+      // If still no data and job is completed, try to fetch results
+      if (!vizData && job.status === 'completed' && job.method) {
+        try {
+          logger.info(`No results in job object, attempting to fetch results for ${job.method} job ${input.job_id}`);
+          
+          // Try to fetch results using the job's payload
+          if (job.payload) {
+            const resultsResponse = await fetchMethodResultsImpl(job.method, input.job_id, job.payload);
+            
+            if (resultsResponse.status === 'success' && resultsResponse.results) {
+              vizData = resultsResponse.results;
+              
+              // Update the job with the fetched results
+              globalJobStore.updateJobStatus(input.job_id, 'completed', vizData);
+              logger.info(`Successfully fetched and updated results for job ${input.job_id}`);
+            } else {
+              logger.warn(`Failed to fetch results for job ${input.job_id}: ${resultsResponse.error || 'Unknown error'}`);
+            }
+          } else {
+            logger.warn(`Cannot fetch results: Job ${input.job_id} has no payload`);
+          }
+        } catch (error) {
+          logger.error(`Error fetching results for job ${input.job_id}:`, error);
+        }
+      }
+      
+      if (!vizData) {
+        return { 
+          success: false, 
+          error: `No data provided and job ${input.job_id} has no results. If the job is complete, there might be an issue fetching the results.` 
+        };
+      }
+      
+      // Create visualization object
+      const visualization: Visualization = {
+        vizId: `viz_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        jobId: input.job_id,
+        datasetId: input.dataset_id,
+        type: input.type,
+        title: input.title,
+        description: input.description || '',
+        timestamp: Date.now(),
+        data: vizData,
+        config: input.config || {},
+        metadata: { requestedByAgent: true }
+      };
+      
+      // Enrich visualization with registry metadata
+      if (input.type) {
+        try {
+          logger.info(`Attempting to enrich new visualization of type ${input.type}`);
+          
+          // Get the job associated with this visualization to determine the method
+          const job = input.job_id ? globalJobStore.getJob(input.job_id) : null;
+          const jobMethod = job?.method;
+          
+          logger.info(`Visualization is associated with job ${input.job_id}, method: ${jobMethod || 'unknown'}`);
+          
+          let foundRegistryViz = null;
+          
+          // First priority: If we have a job method, look for a visualization with matching name in that method
+          if (jobMethod && registryService.methodExists(jobMethod)) {
+            logger.info(`Looking for visualization with name matching "${input.type}" in method ${jobMethod}`);
+            const methodVisualizations = registryService.getMethodVisualizations(jobMethod);
+            
+            // Try to find a visualization with a matching name
+            const nameMatchViz = methodVisualizations.find(v => 
+              v.name === input.type || 
+              v.name.toLowerCase() === input.type.toLowerCase() ||
+              v.name === input.title || 
+              v.name.toLowerCase() === input.title.toLowerCase()
+            );
+            
+            if (nameMatchViz) {
+              logger.info(`Found visualization with matching name in method ${jobMethod}: ${nameMatchViz.name} (${nameMatchViz.component})`);
+              foundRegistryViz = nameMatchViz;
+            } else {
+              logger.info(`No visualization with name "${input.type}" found in method ${jobMethod}`);
+            }
+          }
+          
+          // Second check: Is the visualization type itself a method?
+          if (!foundRegistryViz && registryService.methodExists(input.type)) {
+            logger.info(`Found method match for ${input.type} in registry`);
+            // Get visualizations for this method
+            const methodVisualizations = registryService.getMethodVisualizations(input.type);
+            logger.info(`Method ${input.type} has ${methodVisualizations.length} visualizations in registry`);
+            
+            // Find a matching visualization by component if available, otherwise use the first one
+            foundRegistryViz = methodVisualizations[0]; // Default to first visualization
+            
+            if (foundRegistryViz) {
+              logger.info(`Found visualization in method ${input.type}: ${foundRegistryViz.name} (${foundRegistryViz.component})`);
+            }
+          }
+          
+          // Third check: Is the visualization type a component name in any method?
+          if (!foundRegistryViz) {
+            logger.info(`${input.type} not found as a method, searching as component across all methods`);
+            
+            // Get all methods from registry
+            const allMethods = await registryService.getAllMethods();
+            logger.info(`Searching across ${Object.keys(allMethods).length} methods in registry`);
+            
+            // Search for component match across all methods
+            for (const methodName of Object.keys(allMethods)) {
+              const methodVisualizations = registryService.getMethodVisualizations(methodName);
+              
+              // Look for a visualization with matching component name
+              const matchingViz = methodVisualizations.find(v => 
+                v.component === input.type || 
+                v.component.toLowerCase() === input.type.toLowerCase()
+              );
+              
+              if (matchingViz) {
+                logger.info(`Found component match for ${input.type} in method ${methodName}: ${matchingViz.name}`);
+                foundRegistryViz = matchingViz;
+                break;
+              }
+            }
+            
+            // Fourth check: Search for visualization by name across all methods
+            if (!foundRegistryViz) {
+              logger.info(`Searching for visualization with name "${input.type}" across all methods`);
+              
+              for (const methodName of Object.keys(allMethods)) {
+                const methodVisualizations = registryService.getMethodVisualizations(methodName);
+                
+                // Look for a visualization with matching name
+                const nameMatchViz = methodVisualizations.find(v => 
+                  v.name === input.type || 
+                  v.name.toLowerCase() === input.type.toLowerCase() ||
+                  v.name === input.title || 
+                  v.name.toLowerCase() === input.title.toLowerCase()
+                );
+                
+                if (nameMatchViz) {
+                  logger.info(`Found name match for "${input.type}" in method ${methodName}: ${nameMatchViz.name} (${nameMatchViz.component})`);
+                  foundRegistryViz = nameMatchViz;
+                  break;
+                }
+              }
+              
+              if (!foundRegistryViz) {
+                logger.info(`No visualization with name "${input.type}" found across all methods`);
+              }
+            }
+          }
+          
+          // Apply registry metadata if found
+          if (foundRegistryViz) {
+            // Enrich with registry metadata
+            if (!visualization.description && foundRegistryViz.description) {
+              visualization.description = foundRegistryViz.description;
+              logger.info(`Set description to: ${foundRegistryViz.description}`);
+            }
+            
+            if (!visualization.component && foundRegistryViz.component) {
+              visualization.component = foundRegistryViz.component;
+              logger.info(`Set component to: ${foundRegistryViz.component}`);
+            }
+            
+            // Store component in metadata if not already there
+            if (foundRegistryViz.component) {
+              visualization.metadata = visualization.metadata || {};
+              visualization.metadata.component = foundRegistryViz.component;
+              logger.info(`Set metadata.component to: ${foundRegistryViz.component}`);
+            }
+            
+            logger.info(`Successfully enriched new visualization with registry metadata`);
+          } else {
+            // If no match found, set reasonable defaults
+            if (!visualization.component) {
+              if (input.type === 'Phylotree') {
+                visualization.component = 'Phylotree';
+                visualization.metadata = visualization.metadata || {};
+                visualization.metadata.component = 'Phylotree';
+                if (!visualization.description) {
+                  visualization.description = 'Phylogenetic tree visualization';
+                }
+                logger.info(`Applied Phylotree-specific defaults for new visualization`);
+              } else {
+                visualization.component = 'TileTable';
+                visualization.metadata = visualization.metadata || {};
+                visualization.metadata.component = 'TileTable';
+                logger.info(`Applied default component 'TileTable' for new visualization`);
+              }
+            }
+          }
+        } catch (regError) {
+          // Log but don't fail if registry enrichment fails
+          logger.error(`Error enriching visualization with registry data: ${regError instanceof Error ? regError.message : String(regError)}`);
+          logger.error(`Stack trace: ${regError instanceof Error ? regError.stack : 'No stack trace'}`);
+          
+          // Set fallback values
+          if (!visualization.component) {
+            visualization.component = input.type === 'Phylotree' ? 'Phylotree' : 'TileTable';
+            visualization.metadata = visualization.metadata || {};
+            visualization.metadata.component = visualization.component;
+            logger.info(`Applied fallback component ${visualization.component} due to registry error`);
+          }
+        }
+      }
+      
+      // Add visualization to store
+      const success = globalVisualizationStore.addVisualization(visualization);
+      
+      if (!success) {
+        return { 
+          success: false, 
+          error: 'Failed to add visualization to store' 
+        };
+      }
+      
+      // Return success with visualization info
+      return { 
+        success: true, 
+        visualization: {
+          vizId: visualization.vizId,
+          jobId: visualization.jobId,
+          datasetId: visualization.datasetId,
+          type: visualization.type,
+          title: visualization.title,
+          timestamp: visualization.timestamp
+        }
+      };
+    } catch (error) {
+      logger.error('Error requesting visualization:', error);
+      return { 
+        success: false, 
+        error: `Failed to request visualization: ${error instanceof Error ? error.message : String(error)}` 
+      };
+    }
+  }
+);
+
+// List available visualizations for a specific HyPhy method
+export const listAvailableVisualizations = ai.defineTool(
+  {
+    name: 'list_available_visualizations',
+    description: 'List available visualizations for a specific HyPhy method',
+    inputSchema: z.object({
+      method: z.string().describe('The HyPhy method name (e.g., "BUSTED", "FEL", "MEME", etc.)'),
+    }),
+    outputSchema: z.object({
+      success: z.boolean(),
+      method: z.string().optional(),
+      visualizations: z.array(
+        z.object({
+          name: z.string(),
+          description: z.string(),
+          component: z.string(),
+          category: z.string(),
+          glyph: z.string().optional(),
+        })
+      ).optional(),
+      error: z.string().optional(),
+    }),
+  },
+  async (input) => {
+    try {
+      // Check if the method exists
+      if (!registryService.methodExists(input.method)) {
+        return { 
+          success: false, 
+          error: `Method '${input.method}' not found` 
+        };
+      }
+      
+      // Get visualizations for the method
+      const visualizations = registryService.getMethodVisualizations(input.method);
+      
+      return { 
+        success: true,
+        method: input.method,
+        visualizations: visualizations.map(viz => ({
+          name: viz.name,
+          description: viz.description,
+          component: viz.component,
+          category: viz.category,
+          glyph: viz.glyph
+        }))
+      };
+    } catch (error) {
+      logger.error('Error listing available visualizations:', error);
+      return { 
+        success: false, 
+        error: `Failed to list available visualizations: ${error instanceof Error ? error.message : String(error)}` 
+      };
+    }
+  }
+);
+
+// Job status tool
+export const getJobStatus = ai.defineTool(
+  {
+    name: 'get_job_status',
+    description: 'Get the status of a specific job',
+    inputSchema: z.object({
+      job_id: JobIdSchema,
+    }),
+    outputSchema: z.object({
+      job: z.object({
+        jobId: z.string(),
+        method: z.string(),
+        status: z.string(),
+        timestamp: z.number(),
+        results: z.any().optional(),
+      }).optional(),
+      error: z.string().optional(),
+    }),
+  },
+  async (input) => {
+    try {
+      const job = globalJobStore.getJob(input.job_id);
+      if (!job) {
+        return { error: `Job ${input.job_id} not found` };
+      }
+      return { job };
+    } catch (error: any) {
+      logger.error(`Error getting job ${input.job_id}:`, error);
+      return { error: `Failed to get job: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+);
+
+// Combine all tools into a single array for the chatFlow
+// Define delete dataset tool
+export const deleteDatasetTool = ai.defineTool(
+  {
+    name: 'delete_dataset',
+    description: 'Delete a dataset from the Datamonkey API',
+    inputSchema: z.object({
+      dataset_id: DatasetIdSchema,
+    }),
+    outputSchema: z.object({
+      success: z.boolean(),
+      message: z.string(),
+      error: z.string().optional(),
+    }),
+  },
+  async (input) => {
+    try {
+      const dataset = globalDatasetStore.getDataset(input.dataset_id);
+      if (!dataset) {
+        return { 
+          success: false, 
+          message: `Dataset ${input.dataset_id} not found`,
+          error: 'Dataset not found'
+        };
+      }
+      
+      // Delete the dataset
+      globalDatasetStore.deleteDataset(input.dataset_id);
+      
+      return { 
+        success: true, 
+        message: `Dataset ${input.dataset_id} has been successfully deleted` 
+      };
+    } catch (error) {
+      logger.error(`Error deleting dataset ${input.dataset_id}:`, error);
+      return { 
+        success: false, 
+        message: `Failed to delete dataset ${input.dataset_id}`,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+);
+
+// Define delete job tool
+export const deleteJobTool = ai.defineTool(
+  {
+    name: 'delete_job',
+    description: 'Delete a job from the Datamonkey API',
+    inputSchema: z.object({
+      job_id: JobIdSchema,
+    }),
+    outputSchema: z.object({
+      success: z.boolean(),
+      message: z.string(),
+      error: z.string().optional(),
+    }),
+  },
+  async (input) => {
+    try {
+      const job = globalJobStore.getJob(input.job_id);
+      if (!job) {
+        return { 
+          success: false, 
+          message: `Job ${input.job_id} not found`,
+          error: 'Job not found'
+        };
+      }
+      
+      // Delete the job
+      globalJobStore.deleteJob(input.job_id);
+      
+      // Also delete any visualizations associated with this job
+      globalVisualizationStore.deleteJobVisualizations(input.job_id);
+      
+      return { 
+        success: true, 
+        message: `Job ${input.job_id} and its associated visualizations have been successfully deleted` 
+      };
+    } catch (error) {
+      logger.error(`Error deleting job ${input.job_id}:`, error);
+      return { 
+        success: false, 
+        message: `Failed to delete job ${input.job_id}`,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+);
+
+// Define delete visualization tool
+export const deleteVisualizationTool = ai.defineTool(
+  {
+    name: 'delete_visualization',
+    description: 'Delete a visualization from the Datamonkey API',
+    inputSchema: z.object({
+      visualization_id: VisualizationIdSchema,
+    }),
+    outputSchema: z.object({
+      success: z.boolean(),
+      message: z.string(),
+      error: z.string().optional(),
+    }),
+  },
+  async (input) => {
+    try {
+      const visualization = globalVisualizationStore.getVisualization(input.visualization_id);
+      if (!visualization) {
+        return { 
+          success: false, 
+          message: `Visualization ${input.visualization_id} not found`,
+          error: 'Visualization not found'
+        };
+      }
+      
+      // Delete the visualization
+      globalVisualizationStore.deleteVisualization(input.visualization_id);
+      
+      return { 
+        success: true, 
+        message: `Visualization ${input.visualization_id} has been successfully deleted` 
+      };
+    } catch (error) {
+      logger.error(`Error deleting visualization ${input.visualization_id}:`, error);
+      return { 
+        success: false, 
+        message: `Failed to delete visualization ${input.visualization_id}`,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+);
 
 const datamonkeyTools = [
-  getAvailableMethods,
   uploadFileToDatamonkey,
-  checkDatasetExists,
   startOrMonitorBustedJob,
+  startOrMonitorRelaxJob,
+  startOrMonitorAbsrelJob,
   startOrMonitorFelJob,
   startOrMonitorMemeJob,
-  startOrMonitorAbsrelJob,
-  startOrMonitorBgmJob,
-  startOrMonitorContrastFelJob,
-  startOrMonitorFadeJob,
-  startOrMonitorFubarJob,
-  startOrMonitorGardJob,
-  startOrMonitorMultihitJob,
-  startOrMonitorNrmJob,
-  startOrMonitorRelaxJob,
   startOrMonitorSlacJob,
-  startOrMonitorSlatkinJob,
-  fetchDatamonkeyJobResults
+  startOrMonitorFubarJob,
+  checkDatasetExists,
+  getAvailableMethods,
+  getJobStatus,
+  listJobs,
+  getJobResults,
+  // New dataset and visualization tools
+  listDatasets,
+  getDatasetDetails,
+  getDatasetJobs,
+  listVisualizations,
+  getJobVisualizationsTool,
+  getVisualizationDetails,
+  // Add missing visualization tools
+  requestVisualization,
+  listAvailableVisualizations,
+  // Delete tools
+  deleteDatasetTool,
+  deleteJobTool,
+  deleteVisualizationTool,
 ];
 
 // Import types from types.ts
 import { Session } from './types';
+import registryService from './services/registryService';
 
 /**
  * Creates a new chat session
@@ -2626,9 +3650,79 @@ export const chatFlow = ai.defineFlow(
       logger.debug(`Using conversation history with ${contextMessages.length} messages`);
     }
     
+    // Get dataset and job information for context with caching
+    // Use a simple in-memory cache with a 5-second TTL
+    const cacheKey = 'chatflow_context_data';
+    const cacheTTL = 5000; // 5 seconds
+    
+    let datasets: any[] = [];
+    let jobs: any[] = [];
+    let visualizations: any[] = [];
+    
+    // Check if we have cached data and it's still valid
+    const now = Date.now();
+    if (chatFlowCache[cacheKey] && (now - chatFlowCache[cacheKey].timestamp) < cacheTTL) {
+      logger.debug('Using cached context data');
+      datasets = chatFlowCache[cacheKey].datasets;
+      jobs = chatFlowCache[cacheKey].jobs;
+      visualizations = chatFlowCache[cacheKey].visualizations;
+    } else {
+      // Cache miss or expired, fetch fresh data
+      logger.debug('Fetching fresh context data');
+      datasets = globalDatasetStore.getAllDatasets();
+      jobs = globalJobStore.getAllJobs();
+      visualizations = globalVisualizationStore.getAllVisualizations();
+      
+      // Update the cache
+      chatFlowCache[cacheKey] = {
+        timestamp: now,
+        datasets,
+        jobs,
+        visualizations
+      };
+    }
+    
+    let datasetContext = '';
+    if (datasets.length > 0) {
+      datasetContext = `\n\nAvailable datasets (${datasets.length}):\n` + 
+        datasets.slice(0, 5).map((dataset, index) => {
+          return `${index + 1}. ${dataset.name} (ID: ${dataset.datasetId}) - ${dataset.hasAlignment ? 'Has alignment' : 'No alignment'}${dataset.hasTree ? ', Has tree' : ''}`;
+        }).join('\n');
+      
+      if (datasets.length > 5) {
+        datasetContext += `\n...and ${datasets.length - 5} more datasets. Use the 'list_datasets' tool to see all.`;
+      }
+    }
+    
+    let jobContext = '';
+    if (jobs.length > 0) {
+      jobContext = `\n\nRecent jobs (${jobs.length}):\n` + 
+        jobs.slice(0, 5).map((job, index) => {
+          return `${index + 1}. ${job.method} job (ID: ${job.jobId}) - Status: ${job.status}${job.datasetId ? `, Dataset: ${job.datasetId}` : ''}`;
+        }).join('\n');
+      
+      if (jobs.length > 5) {
+        jobContext += `\n...and ${jobs.length - 5} more jobs. Use the 'list_jobs' tool to see all.`;
+      }
+    }
+    
+    let vizContext = '';
+    if (visualizations.length > 0) {
+      vizContext = `\n\nAvailable visualizations (${visualizations.length}):\n` + 
+        visualizations.slice(0, 5).map((viz, index) => {
+          return `${index + 1}. ${viz.title} (ID: ${viz.vizId}) - Type: ${viz.type}, Job: ${viz.jobId}`;
+        }).join('\n');
+      
+      if (visualizations.length > 5) {
+        vizContext += `\n...and ${visualizations.length - 5} more visualizations. Use the 'list_visualizations' tool to see all.`;
+      }
+    }
+    
+    const dataContext = datasetContext + jobContext + vizContext;
+    
     const prompt = conversationContext 
-      ? `${conversationContext}\n\nUser: ${input.message}${fileContext}\n\nBased on this conversation and available files, consider if you need to use any available tools from 'datamonkey' to generate a response. If the user wants to analyze a file, use the appropriate HyPhy method tool with the file path. Respond in a helpful and informative manner.`
-      : `User says: "${input.message}"${fileContext}\n\nBased on this and available files, consider if you need to use any available tools from 'datamonkey' to generate a response. If the user wants to analyze a file, use the appropriate HyPhy method tool with the file path. Respond in a helpful and informative manner.`;
+      ? `${conversationContext}\n\nUser: ${input.message}${fileContext}${dataContext}\n\nBased on this conversation, available files, datasets, jobs, and visualizations, consider if you need to use any available tools to generate a response. If the user wants to analyze a file, use the appropriate HyPhy method tool with the file path. If they want to work with datasets or visualizations, use the appropriate dataset or visualization tools. Respond in a helpful and informative manner.`
+      : `User says: "${input.message}"${fileContext}${dataContext}\n\nBased on this and available files, datasets, jobs, and visualizations, consider if you need to use any available tools to generate a response. If the user wants to analyze a file, use the appropriate HyPhy method tool with the file path. If they want to work with datasets or visualizations, use the appropriate dataset or visualization tools. Respond in a helpful and informative manner.`;
     
     // Instead of wrapping the tools (which creates circular references),
     // we'll modify the prompt to instruct the LLM to include the session ID
@@ -2668,3 +3762,20 @@ export const getJob = (jobId: string) => globalJobStore.getJob(jobId);
 export const addJob = (jobInfo: any) => globalJobStore.addJob(jobInfo);
 export const updateJobStatus = (jobId: string, status: string, results?: any) => globalJobStore.updateJobStatus(jobId, status, results);
 export const deleteJob = (jobId: string) => globalJobStore.deleteJob(jobId);
+
+// Export dataset-related functions for server.ts to use
+export const getAllDatasets = () => globalDatasetStore.getAllDatasets();
+export const getDataset = (datasetId: string) => globalDatasetStore.getDataset(datasetId);
+export const addDataset = (dataset: Dataset) => globalDatasetStore.addDataset(dataset);
+export const updateDataset = (datasetId: string, updates: Partial<Dataset>) => globalDatasetStore.updateDataset(datasetId, updates);
+export const deleteDataset = (datasetId: string) => globalDatasetStore.deleteDataset(datasetId);
+
+// Export visualization-related functions for server.ts to use
+export const getAllVisualizations = () => globalVisualizationStore.getAllVisualizations();
+export const getVisualization = (vizId: string) => globalVisualizationStore.getVisualization(vizId);
+export const getJobVisualizations = (jobId: string) => globalVisualizationStore.getJobVisualizations(jobId);
+export const getDatasetVisualizations = (datasetId: string) => globalVisualizationStore.getDatasetVisualizations(datasetId);
+export const addVisualization = (visualization: Visualization) => globalVisualizationStore.addVisualization(visualization);
+export const updateVisualization = (vizId: string, updates: Partial<Visualization>) => globalVisualizationStore.updateVisualization(vizId, updates);
+export const deleteVisualization = (vizId: string) => globalVisualizationStore.deleteVisualization(vizId);
+export const deleteJobVisualizations = (jobId: string) => globalVisualizationStore.deleteJobVisualizations(jobId);
