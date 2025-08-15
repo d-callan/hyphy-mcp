@@ -73,7 +73,7 @@ dev:
 	@echo "Setting up environment variables for Datamonkey API..."
 	@echo "DATAMONKEY_API_URL=$(DATAMONKEY_API_URL)"
 	@echo "DATAMONKEY_API_PORT=$(DATAMONKEY_API_PORT)"
-	@echo "Open your browser to http://localhost:$(SERVER_PORT) to access the chat interface."
+	@echo "Open your browser to http://localhost:5173 to access the chat interface."
 	cd $(GENKIT_CLIENT_DIR) && \
 	DATAMONKEY_API_URL=$(DATAMONKEY_API_URL) \
 	DATAMONKEY_API_PORT=$(DATAMONKEY_API_PORT) \
